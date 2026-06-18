@@ -304,6 +304,15 @@ with ctrl_col:
 
         step = max(1.0, round(min(tw, th) / 100))
 
+        # Apply any values queued by "Load into sliders" before the widgets are
+        # instantiated (writing widget keys after instantiation is forbidden).
+        pending = st.session_state.pop(f"sl_pending_{selected_id}", None)
+        if pending:
+            st.session_state[f"sl_x0_{selected_id}"] = pending["x0"]
+            st.session_state[f"sl_x1_{selected_id}"] = pending["x1"]
+            st.session_state[f"sl_y0_{selected_id}"] = pending["y0"]
+            st.session_state[f"sl_y1_{selected_id}"] = pending["y1"]
+
         x0 = st.slider("Left edge (x min)", min_value=int(tx0), max_value=int(tx1),
                        value=int(st.session_state.get(f"sl_x0_{selected_id}", def_x0)),
                        step=int(step), key=f"sl_x0_{selected_id}")
@@ -375,10 +384,14 @@ with ctrl_col:
                             "larger and will include extra cells."
                         )
                     else:
-                        st.session_state[f"sl_x0_{selected_id}"] = int(xs.min())
-                        st.session_state[f"sl_x1_{selected_id}"] = int(xs.max())
-                        st.session_state[f"sl_y0_{selected_id}"] = int(ys.min())
-                        st.session_state[f"sl_y1_{selected_id}"] = int(ys.max())
+                        # Stash the values and apply them on the next run, before
+                        # the slider widgets are instantiated. Writing the widget
+                        # keys here (after the sliders exist) raises a
+                        # StreamlitAPIException.
+                        st.session_state[f"sl_pending_{selected_id}"] = {
+                            "x0": int(xs.min()), "x1": int(xs.max()),
+                            "y0": int(ys.min()), "y1": int(ys.max()),
+                        }
                         st.rerun()
 
         if saved_verts and _count_in_polygon(cells_df, saved_verts) > 0 and len(slides) > 1:
