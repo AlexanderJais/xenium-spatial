@@ -62,6 +62,29 @@ def test_optional_replicate_id_column(tmp_path):
     assert reps == ["rep_a", "rep_b"]
 
 
+def test_optional_batch_column(tmp_path):
+    """A 5th column is read as batch (shared across conditions here)."""
+    csv = _write_csv(
+        tmp_path / "manifest.csv",
+        [
+            ["AGED_1", "AGED", "/data/aged1", "AGED_1", "run_A"],
+            ["ADULT_1", "ADULT", "/data/adult1", "ADULT_1", "run_A"],
+        ],
+    )
+    m = SlideManifest.from_csv(csv)
+    assert [s["batch"] for s in m] == ["run_A", "run_A"]
+
+
+def test_batch_defaults_to_slide_id(tmp_path):
+    """With no batch column, each slide's batch falls back to its slide_id."""
+    csv = _write_csv(
+        tmp_path / "manifest.csv",
+        [["AGED_1", "AGED", "/data/aged1"]],
+    )
+    m = SlideManifest.from_csv(csv)
+    assert [s["batch"] for s in m] == ["AGED_1"]
+
+
 def test_headerless_absolute_paths(tmp_path):
     """Absolute paths with no header are all retained (the original happy path)."""
     csv = _write_csv(

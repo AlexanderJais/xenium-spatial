@@ -32,6 +32,7 @@ def _ensure_keys(slides: list) -> list:
     for s in slides:
         if not s.get("key"):
             s["key"] = uuid.uuid4().hex[:8]
+        s.setdefault("batch", "")  # technical batch for Harmony (blank = slide_id)
     return slides
 
 
@@ -96,13 +97,17 @@ st.divider()
 st.subheader("Slide folders")
 st.caption(
     "Add a row per Xenium run. Conditions are free text — use whatever group "
-    "labels your study needs (the defaults are AGED / ADULT)."
+    "labels your study needs (the defaults are AGED / ADULT). **Batch** is an "
+    "optional technical label (e.g. sequencing run / capture date) used by "
+    "Harmony in the Leiden Optimizer; share it across conditions to remove batch "
+    "effects without erasing the condition difference. Leave blank to use slide_id."
 )
 
 # Header row
-h_cond, h_id, h_path, h_status, h_del = st.columns([1.3, 1.5, 4.4, 1.3, 0.6])
+h_cond, h_id, h_batch, h_path, h_status, h_del = st.columns([1.2, 1.4, 1.2, 3.6, 1.0, 0.6])
 h_cond.markdown("**Condition**")
 h_id.markdown("**Slide ID**")
+h_batch.markdown("**Batch**")
 h_path.markdown("**Run directory**")
 h_status.markdown("**Status**")
 
@@ -112,7 +117,7 @@ delete_key = None  # set if a row's delete button is pressed; processed after lo
 for i, slide in enumerate(slides):
     row_key = slide["key"]
 
-    col_cond, col_id, col_path, col_status, col_del = st.columns([1.3, 1.5, 4.4, 1.3, 0.6])
+    col_cond, col_id, col_batch, col_path, col_status, col_del = st.columns([1.2, 1.4, 1.2, 3.6, 1.0, 0.6])
 
     with col_cond:
         new_cond = st.text_input(
@@ -135,6 +140,19 @@ for i, slide in enumerate(slides):
             label_visibility="collapsed",
         )
         slides[i]["slide_id"] = new_id
+
+    with col_batch:
+        new_batch = st.text_input(
+            "Batch",
+            value=slide.get("batch", ""),
+            placeholder="slide_id",
+            key=f"batch_{row_key}",
+            label_visibility="collapsed",
+            help="Technical batch for Harmony (e.g. sequencing run / date). "
+                 "Share a value across conditions to correct batch without "
+                 "removing the condition difference. Blank = use slide_id.",
+        )
+        slides[i]["batch"] = new_batch
 
     with col_path:
         new_path = st.text_input(
@@ -238,7 +256,7 @@ if delete_key is not None:
     else:
         st.session_state["slides"] = [s for s in slides if s["key"] != delete_key]
         # Drop the deleted row's widget state so its values can't leak elsewhere.
-        for prefix in ("cond_", "slide_id_", "run_dir_", "del_slide_"):
+        for prefix in ("cond_", "slide_id_", "batch_", "run_dir_", "del_slide_"):
             st.session_state.pop(f"{prefix}{delete_key}", None)
         prune_orphan_rois()  # drop the removed slide's ROI from the in-memory dict
         st.rerun()
@@ -252,6 +270,7 @@ if st.button("➕ Add slide", use_container_width=False):
         "slide_id" : f"Sample_{len(slides) + 1}",
         "condition": default_cond,
         "run_dir"  : "",
+        "batch"    : "",
         "key"      : uuid.uuid4().hex[:8],
     })
     st.session_state["slides"] = slides
