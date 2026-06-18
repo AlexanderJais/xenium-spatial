@@ -71,14 +71,28 @@ n_roi = sum(1 for sid in slide_ids if sid in st.session_state["roi_polygons"]
                 / f"{sid.replace('/', '_').replace(' ', '_')}_roi.json").exists())
 
 resolution = float(st.session_state.get("leiden_resolution", 0.6))
-n_pcs = int(st.session_state.get("n_pcs", 50))
 out_dir = st.session_state["output_dir"]
 h5ad_path = clustered_h5ad_path(out_dir)
 
+
+def _applied_n_pcs(default: int = 50) -> int:
+    """The n_pcs the optimizer last applied, read from the persisted settings.
+    We deliberately do NOT use st.session_state['n_pcs']: that key belongs to the
+    optimizer page's widget and Streamlit clears it when you navigate to a page
+    that doesn't render that widget, silently falling back to 50."""
+    import json
+    p = Path(out_dir) / "leiden_optimizer" / "pipeline_settings.json"
+    if p.exists():
+        try:
+            return int(json.loads(p.read_text()).get("n_pcs", default))
+        except Exception:
+            return default
+    return default
+
+
 st.markdown(
     f"Builds clusters at the applied resolution **{resolution:.2f}** "
-    f"(set in the 🔎 Leiden Optimizer) using **{n_pcs} PCs**. "
-    "Adjust the embedding to match what you swept, then build."
+    "(set in the 🔎 Leiden Optimizer). Match the embedding to what you swept, then build."
 )
 
 # ── Embedding settings (match the optimizer's run) ──────────────────────────
@@ -97,10 +111,17 @@ with st.expander("⚙️ Embedding settings", expanded=not h5ad_path.exists()):
         n_neighbors = st.number_input("KNN neighbours", min_value=2, max_value=100, value=15,
                                       step=1, key="cl_knn")
     with c3:
+        if "cl_n_pcs" not in st.session_state:
+            st.session_state["cl_n_pcs"] = max(2, min(200, _applied_n_pcs()))
+        n_pcs = st.number_input("PCA components", min_value=2, max_value=200, step=1,
+                                key="cl_n_pcs",
+                                help="Defaults to the value applied in the Leiden Optimizer. "
+                                     "Use the elbow recommendation (~16 here) for a cleaner "
+                                     "embedding than the 50-PC default.")
         scale_genes = st.toggle("Z-score genes before PCA", value=False, key="cl_scale")
 
     batch_key = "batch" if (use_harmony and len(valid_slides) > 1) else None
-    build = st.button(f"🧬 Build clustering (resolution {resolution:.2f})",
+    build = st.button(f"🧬 Build clustering ({n_pcs} PCs · resolution {resolution:.2f})",
                       type="primary", use_container_width=True)
 
 if build:
