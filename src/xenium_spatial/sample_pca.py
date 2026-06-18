@@ -412,20 +412,25 @@ def plot_sample_pca(
     ax.axhline(0, color="grey", lw=0.4, ls="--", zorder=1)
     ax.axvline(0, color="grey", lw=0.4, ls="--", zorder=1)
 
-    # Condition legend (colour); plus a batch legend (marker shape) when shown.
-    if len(uniq) > 1:
-        cond_handles = [Line2D([0], [0], marker="o", ls="", markerfacecolor=colour[c],
-                               markeredgecolor="black", markersize=7, label=c)
-                        for c in uniq]
-        leg1 = ax.legend(handles=cond_handles, title=condition_key, frameon=False,
-                         loc="best", fontsize=5.5)
-        ax.add_artist(leg1)
+    # Legends. With both a colour (condition) and a shape (batch) legend, the
+    # 4-corner sample layout leaves no free interior spot, so place them outside
+    # the axes (stacked on the right) to avoid overlapping each other or points.
+    # savefig uses bbox="tight" (see _NATURE_RC), so the outside legends are kept.
+    cond_handles = [Line2D([0], [0], marker="o", ls="", markerfacecolor=colour[c],
+                           markeredgecolor="black", markersize=7, label=c)
+                    for c in uniq]
     if show_batch:
+        leg1 = ax.legend(handles=cond_handles, title=condition_key, frameon=False,
+                         fontsize=5.5, loc="upper left", bbox_to_anchor=(1.01, 1.0))
+        ax.add_artist(leg1)
         batch_handles = [Line2D([0], [0], marker=batch_marker[b], ls="",
                                 markerfacecolor="lightgrey", markeredgecolor="black",
                                 markersize=7, label=b) for b in uniq_batch]
         ax.legend(handles=batch_handles, title=batch_key, frameon=False,
-                  loc="lower right", fontsize=5.5)
+                  fontsize=5.5, loc="upper left", bbox_to_anchor=(1.01, 0.45))
+    elif len(uniq) > 1:
+        ax.legend(handles=cond_handles, title=condition_key, frameon=False,
+                  loc="best", fontsize=5.5)
 
     fig.tight_layout()
     return _savefig(fig, Path(output_dir) / "sample_pca_scatter", fmt=fmt, dpi=dpi)
