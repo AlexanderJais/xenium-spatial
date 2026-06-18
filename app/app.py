@@ -46,6 +46,7 @@ DEFAULTS = {
     "min_slides"    : 2,
     "roi_polygons"  : {},
     "leiden_resolution": 0.6,
+    "n_pcs"         : 50,
 }
 for k, v in DEFAULTS.items():
     if k not in st.session_state:
@@ -193,7 +194,7 @@ page_header(
     "Pseudobulk PCA  ·  AGED vs ADULT mouse brain  ·  Mediobasal hypothalamus  ·  biological replicates",
 )
 
-col1, col2, col3, col4 = st.columns(4)
+col1, col2, col3, col4, col5 = st.columns(5)
 with col1:
     st.metric("Slides configured", f"{configured} / {n_slides}")
 with col2:
@@ -202,6 +203,8 @@ with col3:
     st.metric("Sample PCA", "ready" if pca_done else "—")
 with col4:
     st.metric("Leiden resolution", f"{st.session_state['leiden_resolution']:.2f}")
+with col5:
+    st.metric("PCA components", f"{int(st.session_state['n_pcs'])}")
 
 st.divider()
 

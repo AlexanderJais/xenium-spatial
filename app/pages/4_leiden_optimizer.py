@@ -44,6 +44,7 @@ for k, v in {
     "panel_mode"    : "partial_union",
     "min_slides"    : 2,
     "leiden_resolution"            : 0.6,
+    "n_pcs"                        : 50,
     "optimizer_results"            : None,
     "optimizer_best"               : None,
     "optimizer_best_row"           : None,
@@ -62,6 +63,8 @@ if "_resolution_restored" not in st.session_state:
             _saved = json.loads(_settings.read_text())
             if "leiden_resolution" in _saved:
                 st.session_state["leiden_resolution"] = float(_saved["leiden_resolution"])
+            if "n_pcs" in _saved:
+                st.session_state["n_pcs"] = int(_saved["n_pcs"])
         except Exception:
             pass
     st.session_state["_resolution_restored"] = True
@@ -179,6 +182,7 @@ def _persist_resolution(res: float, output_dir: Path) -> Path:
         except Exception:
             settings = {}
     settings["leiden_resolution"] = float(res)
+    settings["n_pcs"] = int(st.session_state.get("n_pcs", 50))
     settings_path.write_text(json.dumps(settings, indent=2))
     return settings_path
 
@@ -343,7 +347,7 @@ with p2:
                                      "dropping per-slide add-on genes so the embedding is "
                                      "comparable across slides.")
 with p3:
-    n_pcs = st.number_input("PCA components", min_value=2, max_value=200, value=50, step=5,
+    n_pcs = st.number_input("PCA components", min_value=2, max_value=200, step=5, key="n_pcs",
                             help="Principal components used for the embedding and KNN graph. "
                                  "Not sure how many? Use the elbow-plot tool just below to "
                                  "estimate it from the data.")

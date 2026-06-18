@@ -349,6 +349,7 @@ with col_save:
             "output_dir"    : st.session_state["output_dir"],
             "roi_cache_dir" : st.session_state["roi_cache_dir"],
             "leiden_resolution": st.session_state.get("leiden_resolution", 0.6),
+            "n_pcs"         : int(st.session_state.get("n_pcs", 50)),
         }
         cfg_str = json.dumps(cfg, indent=2)
         st.download_button(
@@ -369,7 +370,8 @@ with col_load:
             if "slides" in cfg:
                 st.session_state["slides"] = _ensure_keys(cfg["slides"])
                 prune_orphan_rois()  # drop ROIs for slides not in the new config
-            for k in ["base_panel_csv", "output_dir", "roi_cache_dir", "leiden_resolution"]:
+            for k in ["base_panel_csv", "output_dir", "roi_cache_dir",
+                      "leiden_resolution", "n_pcs"]:
                 if k in cfg:
                     st.session_state[k] = cfg[k]
             st.success("Configuration loaded — refresh the page to see updated paths.")
