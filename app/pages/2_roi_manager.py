@@ -457,7 +457,10 @@ with chart_col:
         else:
             st.info("Configure the run directory in **📁 Study Setup** to see the tissue.")
     else:
-        MAX_DISPLAY = 100_000
+        # Display-only subsample: the ROI cell count above uses the full
+        # cells_df, so this only thins the scatter to keep dragging snappy on
+        # dense sections. Fixed seed -> stable points across reruns (no flicker).
+        MAX_DISPLAY = 40_000
         df_plot = (cells_df if len(cells_df) <= MAX_DISPLAY
                    else cells_df.sample(MAX_DISPLAY, random_state=42))
 
@@ -512,11 +515,15 @@ with chart_col:
         st.plotly_chart(fig, use_container_width=True,
                         config={"scrollZoom": True, "displaylogo": False})
 
+        subsample_note = (
+            f" · scatter thinned to {MAX_DISPLAY:,} of {len(cells_df):,} cells (count uses all)"
+            if len(cells_df) > MAX_DISPLAY else ""
+        )
         st.caption(
             f"Tissue bounds: x = {cells_df['centroid_x'].min():.0f}–{cells_df['centroid_x'].max():.0f} µm, "
             f"y = {cells_df['centroid_y'].min():.0f}–{cells_df['centroid_y'].max():.0f} µm  |  "
             f"Orange rectangle = current selection · green = saved ROI  |  "
-            f"Y axis: 0 = dorsal, larger = ventral"
+            f"Y axis: 0 = dorsal, larger = ventral{subsample_note}"
         )
 
 # ── Summary table ──────────────────────────────────────────────────────────────
