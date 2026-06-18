@@ -128,6 +128,19 @@ def _load_all_saved_rois():
                 st.session_state["roi_polygons"][sid] = v
 
 
+def _next_unsaved(current_id: str, slide_ids: list[str]) -> str | None:
+    """First slide without a saved ROI, searching forward from ``current_id``
+    then wrapping to the start. Returns ``None`` if every slide is saved."""
+    if current_id not in slide_ids:
+        return None
+    i = slide_ids.index(current_id)
+    order = slide_ids[i + 1:] + slide_ids[:i + 1]
+    for sid in order:
+        if sid not in st.session_state["roi_polygons"]:
+            return sid
+    return None
+
+
 def _count_in_rect(cells_df: pd.DataFrame, x0, x1, y0, y1) -> int:
     mask = (
         (cells_df["centroid_x"] >= x0) & (cells_df["centroid_x"] <= x1) &
@@ -208,8 +221,9 @@ _load_all_saved_rois()
 # ── Page ──────────────────────────────────────────────────────────────────────
 page_header("🗺️ ROI Manager", "Define the mediobasal hypothalamus boundary for each slide")
 st.markdown(
-    "Use the sliders to frame the **mediobasal hypothalamus (MBH)** on each section. "
-    "The scatter and cell count update live."
+    "**Drag a box on the tissue** to frame the **mediobasal hypothalamus (MBH)** "
+    "on each section, or fine-tune with the edge sliders. The scatter and cell "
+    "count update live."
 )
 
 slides = st.session_state.get("slides", [])
@@ -262,11 +276,38 @@ if n_saved > 0:
 st.divider()
 
 # ── Slide selector ────────────────────────────────────────────────────────────
-selected_id = st.selectbox(
-    "Select slide",
-    options=slide_ids,
-    format_func=lambda sid: f"{'✅' if sid in st.session_state['roi_polygons'] else '⬜'} {sid}",
-)
+# Current index, derived from the selectbox's stored value so the ◀/▶ buttons
+# and the dropdown stay in sync.
+cur = st.session_state.get("roi_slide_select", slide_ids[0])
+if cur not in slide_ids:
+    cur = slide_ids[0]
+cur_idx = slide_ids.index(cur)
+
+nav_prev, nav_sel, nav_next = st.columns([1, 8, 1])
+with nav_prev:
+    st.markdown("<div style='height:1.8em'></div>", unsafe_allow_html=True)
+    if st.button("◀", disabled=cur_idx == 0, use_container_width=True,
+                 help="Previous slide"):
+        # Set the selectbox value before it is instantiated on the next run.
+        st.session_state["roi_slide_select"] = slide_ids[cur_idx - 1]
+        st.rerun()
+with nav_next:
+    st.markdown("<div style='height:1.8em'></div>", unsafe_allow_html=True)
+    if st.button("▶", disabled=cur_idx == len(slide_ids) - 1, use_container_width=True,
+                 help="Next slide"):
+        st.session_state["roi_slide_select"] = slide_ids[cur_idx + 1]
+        st.rerun()
+with nav_sel:
+    selected_id = st.selectbox(
+        "Select slide",
+        options=slide_ids,
+        key="roi_slide_select",
+        format_func=lambda sid: f"{'✅' if sid in st.session_state['roi_polygons'] else '⬜'} {sid}",
+    )
+
+st.checkbox("Auto-advance to next unsaved slide after saving",
+            key="roi_auto_advance", value=True)
+
 selected_slide = next((s for s in slides if s["slide_id"] == selected_id), None)
 
 if st.session_state["roi_last_slide"] != selected_id:
@@ -309,7 +350,8 @@ with ctrl_col:
 
         st.divider()
         st.markdown("**Rectangle ROI**")
-        st.caption("Slide the edges to frame the MBH. The scatter and cell count update instantly.")
+        st.caption("Drag a box on the plot, or slide the edges. "
+                   "The scatter and cell count update instantly.")
 
         step = max(1.0, round(min(tw, th) / 100))
 
@@ -349,6 +391,12 @@ with ctrl_col:
         else:
             st.success(f"**{n_preview:,} cells** ({pct:.1f}%)")
 
+        # Box geometry — helps keep ROIs comparably sized across sections.
+        st.caption(
+            f"📐 Box: {int(x1 - x0):,} × {int(y1 - y0):,} µm  ·  "
+            f"center ({int((x0 + x1) / 2):,}, {int((y0 + y1) / 2):,})"
+        )
+
         st.divider()
 
         saved_verts = st.session_state["roi_polygons"].get(selected_id)
@@ -358,6 +406,10 @@ with ctrl_col:
             _save_roi(selected_id, _rect_to_verts(x0, x1, y0, y1), n_preview)
             st.session_state[f"n_cells_{selected_id}"] = n_preview
             st.session_state["roi_just_saved"] = selected_id
+            if st.session_state.get("roi_auto_advance"):
+                nxt = _next_unsaved(selected_id, slide_ids)
+                if nxt:
+                    st.session_state["roi_slide_select"] = nxt
             st.rerun()
 
         if st.session_state.get("roi_just_saved") == selected_id:
@@ -510,10 +562,36 @@ with chart_col:
             plot_bgcolor="#111111", paper_bgcolor="rgba(0,0,0,0)",
             legend=dict(orientation="h", yanchor="bottom", y=1.01, xanchor="left", x=0,
                         font=dict(size=11), bgcolor="rgba(255,255,255,0.85)"),
-            dragmode="zoom",
+            # Default to box-draw so a drag on the tissue sets the ROI directly.
+            dragmode="select",
         )
-        st.plotly_chart(fig, use_container_width=True,
-                        config={"scrollZoom": True, "displaylogo": False})
+        event = st.plotly_chart(
+            fig, use_container_width=True, key=f"roi_chart_{selected_id}",
+            on_select="rerun", selection_mode="box",
+            config={"scrollZoom": True, "displaylogo": False},
+        )
+
+        # Drag a box on the plot → populate the four edge sliders. Apply via the
+        # pending mechanism + rerun (slider widgets already exist this run).
+        try:
+            boxes = event["selection"]["box"]
+        except (KeyError, TypeError):
+            boxes = None
+        if boxes:
+            bx = sorted(float(v) for v in boxes[0]["x"])
+            by = sorted(float(v) for v in boxes[0]["y"])
+            # Clamp to tissue bounds and snap to ints (slider domain).
+            nx0, nx1 = int(max(tx0, bx[0])), int(min(tx1, bx[1]))
+            ny0, ny1 = int(max(ty0, by[0])), int(min(ty1, by[1]))
+            sig = (selected_id, nx0, nx1, ny0, ny1)
+            # Only act on a *new* box, otherwise the persisted selection would
+            # retrigger the rerun forever.
+            if nx1 > nx0 and ny1 > ny0 and st.session_state.get("roi_last_box") != sig:
+                st.session_state["roi_last_box"] = sig
+                st.session_state[f"sl_pending_{selected_id}"] = {
+                    "x0": nx0, "x1": nx1, "y0": ny0, "y1": ny1,
+                }
+                st.rerun()
 
         subsample_note = (
             f" · scatter thinned to {MAX_DISPLAY:,} of {len(cells_df):,} cells (count uses all)"
@@ -529,22 +607,49 @@ with chart_col:
 # ── Summary table ──────────────────────────────────────────────────────────────
 st.divider()
 st.subheader("All slides")
+
+# First pass: count cells per slide so we can flag outliers against the median.
+counts: dict[str, int | None] = {}
+for s in slides:
+    sid = s["slide_id"]
+    verts = st.session_state["roi_polygons"].get(sid)
+    counts[sid] = (
+        _count_in_polygon_cached(s["run_dir"], tuple(tuple(v) for v in verts))
+        if verts and s.get("run_dir") else None
+    )
+
+# Median of valid (>0) counts; flag slides far from it as likely mis-sized ROIs.
+valid = sorted(c for c in counts.values() if c)
+median = valid[len(valid) // 2] if valid else 0
+
 rows = []
 for s in slides:
     sid   = s["slide_id"]
     verts = st.session_state["roi_polygons"].get(sid)
-    n_inside = None
-    if verts and s.get("run_dir"):
-        n_inside = _count_in_polygon_cached(
-            s["run_dir"], tuple(tuple(v) for v in verts))
+    n_inside = counts[sid]
     roi_str = (
         "⚠️ 0 cells — invalid" if verts and n_inside == 0
         else (f"✅ {n_inside:,} cells" if n_inside else ("✅ saved" if verts else "⬜ missing"))
     )
+    # QC: only meaningful with enough slides to define a typical size.
+    flag = ""
+    if n_inside == 0 and verts:
+        flag = "⚠️ empty"
+    elif n_inside and median and len(valid) >= 3:
+        ratio = n_inside / median
+        if ratio >= 2.0:
+            flag = f"⚠️ large ({ratio:.1f}× median)"
+        elif ratio <= 0.5:
+            flag = f"⚠️ small ({ratio:.1f}× median)"
     rows.append({
         "Slide": sid, "Condition": s["condition"], "ROI": roi_str,
         # n_inside is None when unknown (no ROI / cells unreadable); show the
         # number otherwise, including a genuine 0 (don't collapse it to "—").
         "Cells in ROI": f"{n_inside:,}" if n_inside is not None else "—",
+        "QC": flag,
     })
 st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+if median:
+    st.caption(f"QC flags compare each ROI's cell count to the median "
+               f"({median:,} cells) across saved slides — a flag suggests the "
+               f"box may be mis-sized or misplaced, not necessarily wrong.")
