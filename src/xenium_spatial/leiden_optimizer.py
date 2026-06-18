@@ -129,12 +129,19 @@ def preprocess_for_clustering(
     # PCA — cap components at the matrix rank so small ROIs / panels are safe.
     max_pcs = max(1, min(adata.n_obs, adata.n_vars) - 1)
     n_pcs = min(n_pcs, max_pcs)
-    sc.pp.pca(adata, n_comps=n_pcs, random_state=random_state)
 
-    # Record the elbow-plot recommendation for how many PCs to retain, so the
-    # caller (and the Streamlit UI) can compare the requested ``n_pcs`` against
-    # a data-driven estimate. This only annotates uns; it does not change the
-    # embedding that was just built.
+    # Compute a *generous* PCA so the elbow estimate reflects the full variance
+    # curve rather than just the first ``n_pcs`` components. Computing only
+    # ``n_pcs`` comps truncates ``uns['pca']['variance']``, which makes
+    # compute_elbow_n_pcs unable to ever recommend more than ``n_pcs`` — a
+    # self-reinforcing trap that collapses to a degenerate handful of PCs once a
+    # small ``n_pcs`` has been chosen. PCA's leading components are identical
+    # regardless of how many are computed, so slicing back to ``n_pcs`` below
+    # leaves the clustering embedding (and Harmony / KNN) exactly as before.
+    probe_comps = max(1, min(max(n_pcs, 50), max_pcs))
+    sc.pp.pca(adata, n_comps=probe_comps, random_state=random_state)
+
+    # Record the data-driven elbow recommendation from the full variance curve.
     try:
         elbow = compute_elbow_n_pcs(adata.uns["pca"]["variance"])
         adata.uns["pca_elbow"] = elbow
@@ -146,6 +153,23 @@ def preprocess_for_clustering(
         )
     except Exception as e:  # pragma: no cover - diagnostics only
         logger.debug("Elbow PC estimate skipped: %s", e)
+
+    # Warn when the requested n_pcs is degenerately small: clustering on so few
+    # components tends to give unstable clusters and a boundary-pinned "optimal"
+    # resolution. Surfaces the mistake in the log rather than silently producing
+    # a bad sweep.
+    if n_pcs < 5:
+        logger.warning(
+            "n_pcs=%d is very low — clustering on so few components often gives a "
+            "degenerate embedding (unstable clusters, optimal resolution pinned "
+            "to the sweep boundary). Consider the elbow estimate (~%s PCs).",
+            n_pcs, adata.uns.get("pca_elbow", {}).get("n_pcs", "?"),
+        )
+
+    # Slice the embedding down to the requested components for everything
+    # downstream (Harmony consumes all of X_pca, so this must happen here).
+    if probe_comps > n_pcs:
+        adata.obsm["X_pca"] = adata.obsm["X_pca"][:, :n_pcs]
 
     # Optional Harmony batch correction. The neighbour graph (and therefore the
     # clustering + every metric the sweep scores) is then built on the corrected
