@@ -12,6 +12,7 @@ One click applies the recommended resolution to the pipeline settings.
 
 import sys
 import json
+import logging
 from pathlib import Path
 
 import pandas as pd
@@ -368,6 +369,7 @@ with st.expander("📐 How many PCs? — elbow plot", expanded=True):
                 )
             st.session_state["pca_elbow"] = elbow
         except Exception as e:
+            logging.getLogger("xenium_app").exception("PC estimation failed")
             st.error(f"Could not estimate PCs: {e}")
 
     elbow = st.session_state.get("pca_elbow")
@@ -516,6 +518,7 @@ if run_clicked:
 
         st.rerun()
     except Exception as e:
+        logging.getLogger("xenium_app").exception("Leiden optimisation failed")
         st.error(f"Leiden optimisation failed: {e}")
         st.exception(e)
 

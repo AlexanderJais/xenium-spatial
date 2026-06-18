@@ -9,6 +9,7 @@ separate, with a Nature-style figure that can be downloaded as PDF.
 """
 
 import sys
+import logging
 from pathlib import Path
 
 import pandas as pd
@@ -199,6 +200,7 @@ if run:
         st.success(f"Done — {pb.n_obs} samples × {pb.n_vars} genes. Outputs in `{out_root}`.")
     except Exception as e:
         st.session_state["pca_ran"] = False
+        logging.getLogger("xenium_app").exception("Sample PCA failed")
         st.error(f"Sample PCA failed: {e}")
         st.exception(e)
 

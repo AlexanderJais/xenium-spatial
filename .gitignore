@@ -42,3 +42,6 @@ htmlcov/
 # IDE
 .vscode/
 .idea/
+
+# App debug logs
+logs/

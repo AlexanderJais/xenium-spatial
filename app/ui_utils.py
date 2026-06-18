@@ -7,12 +7,90 @@ Import at the top of every page:
 """
 import html as _html
 import json
+import logging
+from datetime import datetime
+from logging.handlers import RotatingFileHandler
 
 import streamlit as st
 from pathlib import Path
 
 # Repo root (this file lives at <repo>/app/ui_utils.py).
 _ROOT = Path(__file__).parent.parent
+
+# ── Logging ──────────────────────────────────────────────────────────────────
+LOG_DIR = _ROOT / "logs"
+LOG_FILE = LOG_DIR / "xenium_app.log"
+_LOG_HANDLER_TAG = "_xenium_app_file"
+# Third-party loggers that flood the file at DEBUG with little debugging value.
+_NOISY_LOGGERS = ("matplotlib", "numba", "PIL", "fontTools", "h5py", "harmonypy")
+
+
+def get_log_file() -> Path:
+    """Path to the app's debug log file."""
+    return LOG_FILE
+
+
+def init_logging(level: int = logging.INFO) -> Path:
+    """Attach a rotating file handler so the app and the ``xenium_spatial``
+    package write debug output to ``<repo>/logs/xenium_app.log``.
+
+    Idempotent: the handler is added once per process (tagged so repeated
+    Streamlit reruns don't stack duplicates); subsequent calls just update the
+    level. Returns the log file path.
+    """
+    LOG_DIR.mkdir(parents=True, exist_ok=True)
+    root = logging.getLogger()
+    handler = next((h for h in root.handlers
+                    if getattr(h, _LOG_HANDLER_TAG, False)), None)
+    if handler is None:
+        handler = RotatingFileHandler(
+            LOG_FILE, maxBytes=2_000_000, backupCount=3, encoding="utf-8")
+        setattr(handler, _LOG_HANDLER_TAG, True)
+        handler.setFormatter(logging.Formatter(
+            "%(asctime)s  %(levelname)-7s  %(name)s  %(message)s",
+            datefmt="%Y-%m-%d %H:%M:%S"))
+        root.addHandler(handler)
+        logging.captureWarnings(True)  # route warnings.warn(...) into the log
+        logging.getLogger("xenium_app").info("── logging initialised → %s", LOG_FILE)
+    root.setLevel(level)
+    handler.setLevel(level)
+    for name in _NOISY_LOGGERS:
+        logging.getLogger(name).setLevel(max(level, logging.WARNING))
+    return LOG_FILE
+
+
+def log_panel() -> None:
+    """Render a compact debug-log panel: file location, level selector,
+    download / clear buttons and a tail preview. Drop on any page."""
+    log_file = get_log_file()
+    with st.expander("🪵 Debug log"):
+        st.caption(f"Log file: `{log_file}`")
+        levels = ["DEBUG", "INFO", "WARNING", "ERROR"]
+        cur = st.session_state.get("log_level", "INFO")
+        new_level = st.selectbox(
+            "Verbosity", levels, index=levels.index(cur) if cur in levels else 1,
+            help="DEBUG captures the most detail. Applies to messages logged from now on.")
+        if new_level != cur:
+            st.session_state["log_level"] = new_level
+            init_logging(logging.getLevelName(new_level))
+
+        if log_file.exists() and log_file.stat().st_size:
+            data = log_file.read_bytes()
+            st.caption(f"{len(data):,} bytes · updated "
+                       f"{datetime.fromtimestamp(log_file.stat().st_mtime):%Y-%m-%d %H:%M:%S}")
+            c1, c2 = st.columns(2)
+            with c1:
+                st.download_button("⬇️ Download log", data=data, file_name="xenium_app.log",
+                                   mime="text/plain", use_container_width=True)
+            with c2:
+                if st.button("🗑 Clear log", use_container_width=True):
+                    log_file.write_text("")
+                    logging.getLogger("xenium_app").info("log cleared from UI")
+                    st.rerun()
+            tail = data.decode("utf-8", "replace").splitlines()[-40:]
+            st.code("\n".join(tail) or "(empty)", language="log")
+        else:
+            st.info("Log is empty — run a step (Sample PCA / Leiden) to populate it.")
 
 
 def init_session_state() -> None:
@@ -43,10 +121,12 @@ def init_session_state() -> None:
         "optimizer_best"               : None,
         "optimizer_best_row"           : None,
         "optimizer_cluster_assignments": None,
+        "log_level"                    : "INFO",
     }
     for k, v in defaults.items():
         if k not in st.session_state:
             st.session_state[k] = v
+    init_logging(logging.getLevelName(st.session_state["log_level"]))
     _restore_persisted_settings()
 
 

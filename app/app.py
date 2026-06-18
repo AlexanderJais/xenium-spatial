@@ -18,7 +18,8 @@ from pathlib import Path
 
 import sys as _sys
 _sys.path.insert(0, str(Path(__file__).parent))
-from ui_utils import inject_css, page_header, prune_orphan_rois, init_session_state
+from ui_utils import (inject_css, page_header, prune_orphan_rois,
+                      init_session_state, log_panel)
 
 st.set_page_config(
     page_title            = "Xenium Sample PCA",
@@ -150,6 +151,8 @@ else:
         st.info(f"Next step: **{STEP_LABELS[current_step - 1]}** — use the sidebar to navigate.")
 
 st.divider()
+log_panel()
+
 st.markdown(
     '<p style="font-size:11.5px; color:#8A95A3; text-align:center;">'
     '🔒 &nbsp;All processing runs locally. No data is transmitted externally.</p>',
