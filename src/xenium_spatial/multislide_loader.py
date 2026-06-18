@@ -139,14 +139,20 @@ class SlideManifest:
             col_names.append("batch")
         df.columns = col_names + list(df.columns[len(col_names):])
 
+        def _opt(row, col):
+            # Optional cell -> str, but a blank/missing cell (NaN) becomes None so
+            # SlideManifest.add can apply its slide_id fallback instead of the
+            # literal string "nan".
+            return str(row[col]) if (col in row and pd.notna(row[col])) else None
+
         manifest = cls()
         for _, row in df.iterrows():
             manifest.add(
                 slide_id     = str(row["slide_id"]),
                 condition    = str(row["condition"]),
                 run_dir      = Path(row["run_dir"]),
-                replicate_id = str(row["replicate_id"]) if "replicate_id" in row else None,
-                batch        = str(row["batch"]) if "batch" in row else None,
+                replicate_id = _opt(row, "replicate_id"),
+                batch        = _opt(row, "batch"),
             )
         logger.info("SlideManifest: loaded %d slides from %s", len(manifest), csv_path)
         return manifest

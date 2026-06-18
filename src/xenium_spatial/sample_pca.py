@@ -376,7 +376,11 @@ def plot_sample_pca(
         else np.array([""] * pb.n_obs)
     )
     uniq_batch = sorted(set(b for b in batches if b))
-    show_batch = len(uniq_batch) > 1 and set(batches) != set(map(str, pb.obs_names))
+    # Batch is informative only when it *groups* samples — i.e. at least one
+    # batch is shared by ≥2 samples (fewer distinct batches than samples). When
+    # every sample has its own batch (the default, batch == slide_id), the
+    # marker shapes carry no signal, so fall back to the plain colour plot.
+    show_batch = 1 < len(uniq_batch) < pb.n_obs
     _MARKERS = ["o", "s", "^", "D", "v", "P", "X", "*"]
     batch_marker = {b: _MARKERS[i % len(_MARKERS)] for i, b in enumerate(uniq_batch)}
 

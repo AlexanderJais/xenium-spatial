@@ -27,25 +27,16 @@ import plotly.graph_objects as go
 import streamlit as st
 
 import sys as _sys; _sys.path.insert(0, str(__import__('pathlib').Path(__file__).parent.parent))
-from ui_utils import inject_css, page_header
+from ui_utils import inject_css, page_header, init_session_state
 
 st.set_page_config(page_title="ROI Manager · Xenium Sample PCA", page_icon="🗺️", layout="wide",
     initial_sidebar_state="expanded")
 
 inject_css()
+init_session_state()
 _ROOT = Path(__file__).parent.parent.parent
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
-
-# ── Session state ─────────────────────────────────────────────────────────────
-for k, v in {
-    "slides"        : [],
-    "roi_polygons"  : {},
-    "roi_cache_dir" : str(Path(__file__).parent.parent.parent / "roi_cache"),
-    "roi_last_slide": None,
-}.items():
-    if k not in st.session_state:
-        st.session_state[k] = v
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -276,6 +267,13 @@ if n_saved > 0:
 st.divider()
 
 # ── Slide selector ────────────────────────────────────────────────────────────
+# Apply a queued slide change (e.g. auto-advance after Save, which runs *after*
+# the selectbox is instantiated) here, before the widget exists this run —
+# writing its key after instantiation raises StreamlitAPIException.
+_pending_slide = st.session_state.pop("roi_pending_slide", None)
+if _pending_slide in slide_ids:
+    st.session_state["roi_slide_select"] = _pending_slide
+
 # Current index, derived from the selectbox's stored value so the ◀/▶ buttons
 # and the dropdown stay in sync.
 cur = st.session_state.get("roi_slide_select", slide_ids[0])
@@ -409,7 +407,8 @@ with ctrl_col:
             if st.session_state.get("roi_auto_advance"):
                 nxt = _next_unsaved(selected_id, slide_ids)
                 if nxt:
-                    st.session_state["roi_slide_select"] = nxt
+                    # Queue it; applied before the selectbox on the next run.
+                    st.session_state["roi_pending_slide"] = nxt
             st.rerun()
 
         if st.session_state.get("roi_just_saved") == selected_id:

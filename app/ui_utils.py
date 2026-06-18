@@ -115,6 +115,7 @@ def init_session_state() -> None:
         "panel_mode"    : "partial_union",
         "min_slides"    : 2,
         "roi_polygons"  : {},
+        "roi_last_slide": None,
         "leiden_resolution"            : 0.6,
         "n_pcs"                        : 50,
         "optimizer_results"            : None,
@@ -146,7 +147,10 @@ def _restore_persisted_settings() -> None:
         if "leiden_resolution" in saved:
             st.session_state["leiden_resolution"] = float(saved["leiden_resolution"])
         if "n_pcs" in saved:
-            st.session_state["n_pcs"] = int(saved["n_pcs"])
+            # Clamp to the optimizer widget's range — a stale/edited settings file
+            # with n_pcs outside [2, 200] would otherwise crash the page when the
+            # number_input is seeded from session_state.
+            st.session_state["n_pcs"] = max(2, min(200, int(saved["n_pcs"])))
     except Exception:
         pass
 
@@ -188,7 +192,7 @@ def _is_under(child, parent) -> bool:
     try:
         Path(child).resolve().relative_to(Path(parent).resolve())
         return True
-    except (ValueError, OSError):
+    except (ValueError, OSError, TypeError):
         return False
 
 
@@ -209,7 +213,11 @@ def paths_panel() -> None:
         st.caption(f"App running from: `{repo}`")
         mismatched = []
         for label, key, want_inside in specs:
-            p = Path(st.session_state[key])
+            raw = st.session_state.get(key)
+            if not raw:  # None / "" from a malformed loaded config
+                st.markdown(f"**{label}** ❌ not set")
+                continue
+            p = Path(str(raw))
             exists = p.exists()
             outside = want_inside and not _is_under(p, repo)
             if outside:

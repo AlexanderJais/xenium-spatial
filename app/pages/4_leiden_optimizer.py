@@ -317,6 +317,9 @@ with p2:
                                      "dropping per-slide add-on genes so the embedding is "
                                      "comparable across slides.")
 with p3:
+    # Clamp a restored/config-loaded value into the widget's range before it is
+    # instantiated; seeding the key with an out-of-range value would raise.
+    st.session_state["n_pcs"] = max(2, min(200, int(st.session_state.get("n_pcs", 50))))
     n_pcs = st.number_input("PCA components", min_value=2, max_value=200, step=5, key="n_pcs",
                             help="Principal components used for the embedding and KNN graph. "
                                  "Not sure how many? Use the elbow-plot tool just below to "

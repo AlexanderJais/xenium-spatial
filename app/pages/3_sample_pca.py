@@ -216,8 +216,10 @@ if scatter_png.exists():
     left, right = st.columns([3, 2])
     with left:
         st.image(str(scatter_png), caption="Sample-level PCA (pseudobulk)", use_container_width=True)
+        # Same "batch groups samples" test as plot_sample_pca's show_batch guard,
+        # so the caption never claims shape-encoding the figure didn't draw.
         _batches = [(s.get("batch") or s["slide_id"]) for s in selected_slides]
-        if len(set(_batches)) > 1 and set(_batches) != {s["slide_id"] for s in selected_slides}:
+        if 1 < len(set(_batches)) < len(selected_slides):
             st.caption(
                 "Marker **shape** = batch, **colour** = condition. If samples group "
                 "by shape rather than colour, a technical batch — not the condition — "
