@@ -9,9 +9,7 @@ Streamlit/Plotly versions, so we use FOUR SLIDERS — one per edge of the
 bounding rectangle (x_min, x_max, y_min, y_max).  Slider ranges come from
 each slide's actual tissue bounds, so every value is a valid coordinate.
 
-A dashed orange ellipse is overlaid as an anatomical atlas hint for the
-mediobasal hypothalamus (ventral-central in a coronal section).  Moving a
-slider updates the rectangle overlay and the live cell count.
+Moving a slider updates the rectangle overlay and the live cell count.
 
 ROIs are saved to ``roi_cache/<slide>_roi.json`` (the same format the
 loader reads via ``src.roi_selector.ROISelector``) and reused automatically.
@@ -52,8 +50,13 @@ for k, v in {
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
+@st.cache_data(show_spinner=False)
 def _load_cells(run_dir: str) -> tuple:
-    """Load centroid_x, centroid_y from the run directory. Returns (df, error_str)."""
+    """Load centroid_x, centroid_y from the run directory. Returns (df, error_str).
+
+    Cached on ``run_dir``: the parquet/CSV files don't change during a session,
+    so this avoids re-reading every slide from disk on every slider movement.
+    """
     p = Path(run_dir)
     for cell_path, loader in [
         (p / "cells.parquet", lambda f: pd.read_parquet(f)),
@@ -146,6 +149,19 @@ def _count_in_polygon(cells_df, verts) -> int:
     return int(mask.sum())
 
 
+@st.cache_data(show_spinner=False)
+def _count_in_polygon_cached(run_dir: str, verts_key: tuple) -> int | None:
+    """Load (cached) and count cells inside a polygon for the summary table.
+
+    Cached on ``(run_dir, verts_key)`` so the per-slide counts aren't recomputed
+    on every slider movement. Returns ``None`` if cells can't be read.
+    """
+    df, _ = _load_cells(run_dir)
+    if df is None:
+        return None
+    return _count_in_polygon(df, [list(v) for v in verts_key])
+
+
 def _export_all() -> str:
     export = {}
     for sid, verts in st.session_state["roi_polygons"].items():
@@ -193,8 +209,7 @@ _load_all_saved_rois()
 page_header("🗺️ ROI Manager", "Define the mediobasal hypothalamus boundary for each slide")
 st.markdown(
     "Use the sliders to frame the **mediobasal hypothalamus (MBH)** on each section. "
-    "The scatter and cell count update live; the dashed orange ellipse is an "
-    "atlas hint for where the MBH usually sits (ventral-central)."
+    "The scatter and cell count update live."
 )
 
 slides = st.session_state.get("slides", [])
@@ -271,7 +286,6 @@ chart_col, ctrl_col = st.columns([3, 1])
 # Defaults for variables consumed by the chart column.
 x0 = x1 = y0 = y1 = 0
 n_preview = 0
-ellipse = None
 
 with ctrl_col:
     cond = selected_slide["condition"] if selected_slide else "—"
@@ -286,11 +300,6 @@ with ctrl_col:
         ty1 = float(cells_df["centroid_y"].max())
         tw  = tx1 - tx0
         th  = ty1 - ty0
-
-        # Atlas-hint ellipse: ventral-central (≈67% down, centred in x).
-        ecx, ecy = tx0 + tw * 0.50, ty0 + th * 0.67
-        ehw, ehh = tw * 0.13, th * 0.11
-        ellipse = (ecx - ehw, ecx + ehw, ecy - ehh, ecy + ehh)
 
         # Default ROI: horizontal centre, ventral 55-80% (where MBH sits).
         def_x0 = round(tx0 + tw * 0.35)
@@ -480,17 +489,6 @@ with chart_col:
                       line=dict(color="#F5A623", width=2.5),
                       fillcolor="rgba(245,166,35,0.05)")
 
-        # Atlas-hint ellipse (dashed orange)
-        if ellipse is not None:
-            ex0, ex1, ey0, ey1 = ellipse
-            fig.add_shape(type="circle", x0=ex0, x1=ex1, y0=ey0, y1=ey1,
-                          line=dict(color="#FF8800", width=1.6, dash="dash"),
-                          fillcolor="rgba(0,0,0,0)")
-            fig.add_annotation(x=(ex0 + ex1) / 2, y=ey1,
-                               text="MBH atlas hint", showarrow=False,
-                               font=dict(color="#FF8800", size=11),
-                               yshift=-10, bgcolor="rgba(255,255,255,0.6)")
-
         # Saved ROI polygon (green)
         if saved_verts and len(saved_verts) >= 3:
             sv = np.array(saved_verts)
@@ -517,7 +515,7 @@ with chart_col:
         st.caption(
             f"Tissue bounds: x = {cells_df['centroid_x'].min():.0f}–{cells_df['centroid_x'].max():.0f} µm, "
             f"y = {cells_df['centroid_y'].min():.0f}–{cells_df['centroid_y'].max():.0f} µm  |  "
-            f"Orange rectangle = current selection · dashed ellipse = atlas hint · green = saved ROI  |  "
+            f"Orange rectangle = current selection · green = saved ROI  |  "
             f"Y axis: 0 = dorsal, larger = ventral"
         )
 
@@ -530,9 +528,8 @@ for s in slides:
     verts = st.session_state["roi_polygons"].get(sid)
     n_inside = None
     if verts and s.get("run_dir"):
-        df, _ = _load_cells(s["run_dir"])
-        if df is not None:
-            n_inside = _count_in_polygon(df, verts)
+        n_inside = _count_in_polygon_cached(
+            s["run_dir"], tuple(tuple(v) for v in verts))
     roi_str = (
         "⚠️ 0 cells — invalid" if verts and n_inside == 0
         else (f"✅ {n_inside:,} cells" if n_inside else ("✅ saved" if verts else "⬜ missing"))
