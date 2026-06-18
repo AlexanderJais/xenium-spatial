@@ -11,28 +11,14 @@ import streamlit as st
 from pathlib import Path
 
 import sys as _sys; _sys.path.insert(0, str(__import__('pathlib').Path(__file__).parent.parent))
-from ui_utils import inject_css, page_header
+from ui_utils import inject_css, page_header, prune_orphan_rois, init_session_state
 
 st.set_page_config(page_title="Study Setup · Xenium Sample PCA", page_icon="📁", layout="wide",
     initial_sidebar_state="expanded")
 
 
 inject_css()
-# ── Shared defaults (duplicated here so pages work standalone) ───────────────
-if "slides" not in st.session_state:
-    st.session_state["slides"] = [
-        {"slide_id": f"AGED_{i}",  "condition": "AGED",  "run_dir": ""} for i in range(1,5)
-    ] + [
-        {"slide_id": f"ADULT_{i}", "condition": "ADULT", "run_dir": ""} for i in range(1,5)
-    ]
-for k, v in {
-    "base_panel_csv": str(Path(__file__).parent.parent.parent / "data" / "Xenium_mBrain_v1_1_metadata.csv"),
-    "output_dir"    : str(Path.home() / "xenium_sample_pca_output"),
-    "roi_cache_dir" : str(Path(__file__).parent.parent.parent / "roi_cache"),
-    "leiden_resolution": 0.6,
-}.items():
-    if k not in st.session_state:
-        st.session_state[k] = v
+init_session_state()
 
 
 def _ensure_keys(slides: list) -> list:
@@ -254,6 +240,7 @@ if delete_key is not None:
         # Drop the deleted row's widget state so its values can't leak elsewhere.
         for prefix in ("cond_", "slide_id_", "run_dir_", "del_slide_"):
             st.session_state.pop(f"{prefix}{delete_key}", None)
+        prune_orphan_rois()  # drop the removed slide's ROI from the in-memory dict
         st.rerun()
 
 st.session_state["slides"] = slides
@@ -348,6 +335,7 @@ with col_save:
             "output_dir"    : st.session_state["output_dir"],
             "roi_cache_dir" : st.session_state["roi_cache_dir"],
             "leiden_resolution": st.session_state.get("leiden_resolution", 0.6),
+            "n_pcs"         : int(st.session_state.get("n_pcs", 50)),
         }
         cfg_str = json.dumps(cfg, indent=2)
         st.download_button(
@@ -367,7 +355,9 @@ with col_load:
             cfg = json.load(uploaded)
             if "slides" in cfg:
                 st.session_state["slides"] = _ensure_keys(cfg["slides"])
-            for k in ["base_panel_csv", "output_dir", "roi_cache_dir", "leiden_resolution"]:
+                prune_orphan_rois()  # drop ROIs for slides not in the new config
+            for k in ["base_panel_csv", "output_dir", "roi_cache_dir",
+                      "leiden_resolution", "n_pcs"]:
                 if k in cfg:
                     st.session_state[k] = cfg[k]
             st.success("Configuration loaded — refresh the page to see updated paths.")

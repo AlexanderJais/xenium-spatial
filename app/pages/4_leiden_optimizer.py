@@ -12,13 +12,14 @@ One click applies the recommended resolution to the pipeline settings.
 
 import sys
 import json
+import logging
 from pathlib import Path
 
 import pandas as pd
 import streamlit as st
 
 import sys as _sys; _sys.path.insert(0, str(__import__('pathlib').Path(__file__).parent.parent))
-from ui_utils import inject_css, page_header
+from ui_utils import inject_css, page_header, init_session_state
 
 st.set_page_config(
     page_title="Leiden Optimizer · Xenium Sample PCA",
@@ -27,44 +28,13 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 inject_css()
+init_session_state()
 
 _ROOT = Path(__file__).parent.parent.parent
 # Make the xenium_spatial package importable without an editable install
 # (src layout: the package lives under <repo>/src).
 if str(_ROOT / "src") not in sys.path:
     sys.path.insert(0, str(_ROOT / "src"))
-
-# ── Session state ─────────────────────────────────────────────────────────────
-for k, v in {
-    "slides"        : [],
-    "roi_polygons"  : {},
-    "roi_cache_dir" : str(_ROOT / "roi_cache"),
-    "base_panel_csv": str(_ROOT / "data" / "Xenium_mBrain_v1_1_metadata.csv"),
-    "output_dir"    : str(Path.home() / "xenium_sample_pca_output"),
-    "panel_mode"    : "partial_union",
-    "min_slides"    : 2,
-    "leiden_resolution"            : 0.6,
-    "optimizer_results"            : None,
-    "optimizer_best"               : None,
-    "optimizer_best_row"           : None,
-    "optimizer_cluster_assignments": None,
-}.items():
-    if k not in st.session_state:
-        st.session_state[k] = v
-
-# Restore a previously applied resolution when this page is opened directly
-# (deep-link), so it doesn't show the 0.6 default until the home page is visited.
-if "_resolution_restored" not in st.session_state:
-    _settings = (Path(st.session_state["output_dir"])
-                 / "leiden_optimizer" / "pipeline_settings.json")
-    if _settings.exists():
-        try:
-            _saved = json.loads(_settings.read_text())
-            if "leiden_resolution" in _saved:
-                st.session_state["leiden_resolution"] = float(_saved["leiden_resolution"])
-        except Exception:
-            pass
-    st.session_state["_resolution_restored"] = True
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -179,6 +149,7 @@ def _persist_resolution(res: float, output_dir: Path) -> Path:
         except Exception:
             settings = {}
     settings["leiden_resolution"] = float(res)
+    settings["n_pcs"] = int(st.session_state.get("n_pcs", 50))
     settings_path.write_text(json.dumps(settings, indent=2))
     return settings_path
 
@@ -259,10 +230,14 @@ def _build_clustree(cluster_df: pd.DataFrame, best_res: float) -> None:
         ),
         link=dict(source=sources, target=targets, value=values, color=edge_colors),
     )])
+    # Height scales with the *widest* level (most clusters in any single
+    # resolution), since levels are laid out left-to-right. Using the total
+    # node count across all levels produced an absurdly tall, tangled figure.
+    max_nodes_per_level = max((cluster_df[c].nunique() for c in cols), default=1)
     fig.update_layout(
         title_text="Clustree: Cluster Lineage Across Resolutions",
         title_x=0.5, font_size=10,
-        height=max(450, 35 * len(set(node_labels))),
+        height=int(min(max(450, 40 * max_nodes_per_level), 1600)),
         template="plotly_white",
     )
     st.plotly_chart(fig, use_container_width=True)
@@ -339,7 +314,7 @@ with p2:
                                      "dropping per-slide add-on genes so the embedding is "
                                      "comparable across slides.")
 with p3:
-    n_pcs = st.number_input("PCA components", min_value=2, max_value=200, value=50, step=5,
+    n_pcs = st.number_input("PCA components", min_value=2, max_value=200, step=5, key="n_pcs",
                             help="Principal components used for the embedding and KNN graph. "
                                  "Not sure how many? Use the elbow-plot tool just below to "
                                  "estimate it from the data.")
@@ -394,6 +369,7 @@ with st.expander("📐 How many PCs? — elbow plot", expanded=True):
                 )
             st.session_state["pca_elbow"] = elbow
         except Exception as e:
+            logging.getLogger("xenium_app").exception("PC estimation failed")
             st.error(f"Could not estimate PCs: {e}")
 
     elbow = st.session_state.get("pca_elbow")
@@ -542,6 +518,7 @@ if run_clicked:
 
         st.rerun()
     except Exception as e:
+        logging.getLogger("xenium_app").exception("Leiden optimisation failed")
         st.error(f"Leiden optimisation failed: {e}")
         st.exception(e)
 
