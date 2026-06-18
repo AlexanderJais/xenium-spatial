@@ -51,7 +51,8 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 # Minimal figure style (kept local so this module has no seaborn / scanpy
 # dependency — it only needs numpy/pandas/scipy/sklearn/matplotlib).
-# Mirrors the Nature-grade constants in xenium_spatial.figures.
+# Encodes the Nature-grade figure conventions used across the project
+# (Arial-ish sans, thin spines, editable Type-42 PDF fonts).
 # ---------------------------------------------------------------------------
 _NATURE_RC = {
     "font.size": 7, "axes.titlesize": 8, "axes.labelsize": 7,

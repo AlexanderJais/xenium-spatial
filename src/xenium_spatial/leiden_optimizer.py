@@ -624,6 +624,11 @@ def optimize_leiden_resolution(
 
     rows: list[dict] = []
     cluster_cols: dict[str, np.ndarray] = {}  # for clustree
+    # The sweep mutates `adata` in place: each iteration writes Leiden labels to
+    # this temp obs column (removed after the loop) and scanpy stamps
+    # adata.uns['leiden']. Callers that pass a shared/cached object (e.g. the
+    # Streamlit page's @st.cache_resource embedding) get it back clean, but
+    # should not rely on it being untouched mid-sweep.
     tmp_key = f"_leiden_opt_{random_state}"
 
     for step_i, res in enumerate(resolutions):

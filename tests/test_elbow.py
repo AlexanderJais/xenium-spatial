@@ -28,7 +28,6 @@ def test_steep_then_flat_curve():
 
 
 def test_recommendation_is_min_of_cutoffs():
-    rng = np.random.default_rng(0)
     stdev = np.concatenate([np.linspace(7, 2, 12), np.linspace(1.9, 0.3, 38)])
     out = compute_elbow_n_pcs(stdev ** 2)
     assert out["n_pcs"] == min(out["co1"], out["co2"])
