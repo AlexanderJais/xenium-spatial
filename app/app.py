@@ -19,7 +19,7 @@ from pathlib import Path
 import sys as _sys
 _sys.path.insert(0, str(Path(__file__).parent))
 from ui_utils import (inject_css, page_header, prune_orphan_rois,
-                      init_session_state, log_panel, paths_panel)
+                      init_session_state, log_panel, paths_panel, applied_n_pcs)
 
 st.set_page_config(
     page_title            = "Xenium Sample PCA",
@@ -95,7 +95,9 @@ with col3:
 with col4:
     st.metric("Leiden resolution", f"{st.session_state['leiden_resolution']:.2f}")
 with col5:
-    st.metric("PCA components", f"{int(st.session_state['n_pcs'])}")
+    # Read the applied value from the settings file, not session_state['n_pcs']
+    # (a widget key the optimizer page owns; it's cleared on other pages).
+    st.metric("PCA components", f"{applied_n_pcs(st.session_state['output_dir'])}")
 
 st.divider()
 

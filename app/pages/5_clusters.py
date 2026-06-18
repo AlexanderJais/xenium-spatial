@@ -17,7 +17,7 @@ import pandas as pd
 import streamlit as st
 
 import sys as _sys; _sys.path.insert(0, str(__import__('pathlib').Path(__file__).parent.parent))
-from ui_utils import inject_css, page_header, init_session_state
+from ui_utils import inject_css, page_header, init_session_state, applied_n_pcs
 
 st.set_page_config(page_title="Clusters · Xenium Sample PCA", page_icon="🔬", layout="wide",
     initial_sidebar_state="expanded")
@@ -74,22 +74,6 @@ resolution = float(st.session_state.get("leiden_resolution", 0.6))
 out_dir = st.session_state["output_dir"]
 h5ad_path = clustered_h5ad_path(out_dir)
 
-
-def _applied_n_pcs(default: int = 50) -> int:
-    """The n_pcs the optimizer last applied, read from the persisted settings.
-    We deliberately do NOT use st.session_state['n_pcs']: that key belongs to the
-    optimizer page's widget and Streamlit clears it when you navigate to a page
-    that doesn't render that widget, silently falling back to 50."""
-    import json
-    p = Path(out_dir) / "leiden_optimizer" / "pipeline_settings.json"
-    if p.exists():
-        try:
-            return int(json.loads(p.read_text()).get("n_pcs", default))
-        except Exception:
-            return default
-    return default
-
-
 st.markdown(
     f"Builds clusters at the applied resolution **{resolution:.2f}** "
     "(set in the 🔎 Leiden Optimizer). Match the embedding to what you swept, then build."
@@ -112,7 +96,7 @@ with st.expander("⚙️ Embedding settings", expanded=not h5ad_path.exists()):
                                       step=1, key="cl_knn")
     with c3:
         if "cl_n_pcs" not in st.session_state:
-            st.session_state["cl_n_pcs"] = max(2, min(200, _applied_n_pcs()))
+            st.session_state["cl_n_pcs"] = max(2, min(200, applied_n_pcs(out_dir)))
         n_pcs = st.number_input("PCA components", min_value=2, max_value=200, step=1,
                                 key="cl_n_pcs",
                                 help="Defaults to the value applied in the Leiden Optimizer. "
