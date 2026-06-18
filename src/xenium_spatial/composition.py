@@ -69,6 +69,13 @@ def composition_stats(comp_long: pd.DataFrame, group_key: str = "cell_type",
 
     conds = sorted(comp_long[condition_key].dropna().unique()) \
         if condition_key in comp_long.columns else []
+    # Fold-change pseudocount = half a cell as a proportion of the median sample
+    # size. A fixed tiny value (e.g. 1e-9) is far below single-cell resolution,
+    # so for a type absent in one condition it produces an absurd ±20+ log2FC; a
+    # half-cell floor caps the change at the real detection limit.
+    median_total = (float(comp_long["sample_total"].median())
+                    if "sample_total" in comp_long.columns else 0.0)
+    pc = 0.5 / median_total if median_total > 0 else 1e-3
     rows = []
     for g, sub in comp_long.groupby(group_key, observed=True):
         rec = {group_key: g}
@@ -80,7 +87,7 @@ def composition_stats(comp_long: pd.DataFrame, group_key: str = "cell_type",
             per_cond.append(vals)
         if len(conds) == 2:
             a, b = rec[f"{conds[0]}_mean"], rec[f"{conds[1]}_mean"]
-            rec["log2fc"] = float(np.log2((b + 1e-9) / (a + 1e-9)))
+            rec["log2fc"] = float(np.log2((b + pc) / (a + pc)))
             rec["direction"] = f"{conds[1]} vs {conds[0]}"
             try:
                 if all(len(v) >= 2 for v in per_cond):
@@ -93,7 +100,9 @@ def composition_stats(comp_long: pd.DataFrame, group_key: str = "cell_type",
         rows.append(rec)
 
     out = pd.DataFrame(rows)
-    if "t_pval" in out.columns and out["t_pval"].notna().any():
+    # Always emit t_padj when a test was run (NaN where unpowered) so the column
+    # contract is stable regardless of how many cell types were testable.
+    if "t_pval" in out.columns:
         out["t_padj"] = _bh_adjust(out["t_pval"].to_numpy())
     sort_col = "log2fc" if "log2fc" in out.columns else group_key
     if sort_col == "log2fc":
