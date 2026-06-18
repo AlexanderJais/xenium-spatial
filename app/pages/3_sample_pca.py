@@ -46,7 +46,7 @@ def _roi_signature(slide_ids, roi_dir) -> tuple:
 
 
 @st.cache_resource(show_spinner=False)
-def _load_combined(run_dirs, slide_ids, conditions, base_csv,
+def _load_combined(run_dirs, slide_ids, conditions, batches, base_csv,
                    roi_dir, use_roi, panel_mode, min_slides, roi_sig):
     """Load + harmonise + ROI-filter + concatenate all slides (cached).
 
@@ -61,8 +61,9 @@ def _load_combined(run_dirs, slide_ids, conditions, base_csv,
     from xenium_spatial.roi_selector import ROISelector
 
     manifest = SlideManifest()
-    for sid, cond, d in zip(slide_ids, conditions, run_dirs):
-        manifest.add(slide_id=sid, condition=cond, run_dir=d, replicate_id=sid)
+    for sid, cond, d, b in zip(slide_ids, conditions, run_dirs, batches):
+        manifest.add(slide_id=sid, condition=cond, run_dir=d, replicate_id=sid,
+                     batch=b or sid)
 
     registry = PanelRegistry(base_csv)
     roi_selector = ROISelector(cache_dir=roi_dir) if use_roi else None
@@ -168,10 +169,11 @@ if run:
             run_dirs   = tuple(str(s["run_dir"]) for s in selected_slides)
             sids       = tuple(s["slide_id"] for s in selected_slides)
             conditions = tuple(s["condition"] for s in selected_slides)
+            batches    = tuple((s.get("batch") or s["slide_id"]) for s in selected_slides)
             roi_sig    = _roi_signature(sids, st.session_state["roi_cache_dir"])
 
             adata = _load_combined(
-                run_dirs, sids, conditions,
+                run_dirs, sids, conditions, batches,
                 st.session_state["base_panel_csv"],
                 st.session_state["roi_cache_dir"], use_roi,
                 st.session_state["panel_mode"], int(st.session_state["min_slides"]),
@@ -213,6 +215,13 @@ if scatter_png.exists():
     left, right = st.columns([3, 2])
     with left:
         st.image(str(scatter_png), caption="Sample-level PCA (pseudobulk)", use_container_width=True)
+        _batches = [(s.get("batch") or s["slide_id"]) for s in selected_slides]
+        if len(set(_batches)) > 1 and set(_batches) != {s["slide_id"] for s in selected_slides}:
+            st.caption(
+                "Marker **shape** = batch, **colour** = condition. If samples group "
+                "by shape rather than colour, a technical batch — not the condition — "
+                "is driving the separation."
+            )
     with right:
         scree_png = out_root / "sample_pca_scree.png"
         if scree_png.exists():

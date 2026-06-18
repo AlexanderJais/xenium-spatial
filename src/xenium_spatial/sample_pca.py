@@ -90,6 +90,7 @@ def pseudobulk_samples(
     adata: ad.AnnData,
     sample_key: str = "replicate",
     condition_key: str = "condition",
+    batch_key: str = "batch",
     layer: str = "counts",
 ) -> ad.AnnData:
     """
@@ -154,6 +155,9 @@ def pseudobulk_samples(
         if condition_key in adata.obs.columns:
             # All cells of one sample share the same condition; take the first.
             meta[condition_key] = str(adata.obs.loc[mask, condition_key].iloc[0])
+        if batch_key in adata.obs.columns:
+            # Likewise, all cells of one sample share the same batch label.
+            meta[batch_key] = str(adata.obs.loc[mask, batch_key].iloc[0])
         meta_rows.append(meta)
 
     if not rows:
@@ -168,6 +172,8 @@ def pseudobulk_samples(
 
     if condition_key in pb.obs.columns:
         pb.obs[condition_key] = pb.obs[condition_key].astype("category")
+    if batch_key in pb.obs.columns:
+        pb.obs[batch_key] = pb.obs[batch_key].astype("category")
 
     logger.info(
         "Pseudobulk: %d samples x %d genes (sample_key='%s'). Cells per sample: %s",
@@ -317,6 +323,7 @@ def run_sample_pca(
 def plot_sample_pca(
     pb: ad.AnnData,
     condition_key: str = "condition",
+    batch_key: str = "batch",
     output_dir: Path | str = ".",
     pc_x: int = 1,
     pc_y: int = 2,
@@ -327,9 +334,13 @@ def plot_sample_pca(
     Scatter of samples in PC space, coloured by group and labelled by id.
 
     Each point is one individual sample (pseudobulk replicate); axis
-    labels report the fraction of variance explained by each PC.
+    labels report the fraction of variance explained by each PC. When a
+    ``batch_key`` column carries more than one batch, batch is encoded as the
+    marker *shape* (condition stays colour) so you can see at a glance whether
+    samples separate by technical batch rather than by condition.
     """
     import matplotlib.pyplot as plt
+    from matplotlib.lines import Line2D
 
     _apply_style()
     CONDITION_COLOURS, WONG = _CONDITION_COLOURS, _WONG
@@ -357,14 +368,32 @@ def plot_sample_pca(
     uniq = sorted(set(conds))
     colour = _condition_colours(uniq, CONDITION_COLOURS, WONG)
 
+    # Optional batch encoding via marker shape (only when >1 batch is present
+    # and it isn't just a copy of the sample id, which carries no information).
+    batches = (
+        pb.obs[batch_key].astype(str).values
+        if batch_key in pb.obs.columns
+        else np.array([""] * pb.n_obs)
+    )
+    uniq_batch = sorted(set(b for b in batches if b))
+    show_batch = len(uniq_batch) > 1 and set(batches) != set(map(str, pb.obs_names))
+    _MARKERS = ["o", "s", "^", "D", "v", "P", "X", "*"]
+    batch_marker = {b: _MARKERS[i % len(_MARKERS)] for i, b in enumerate(uniq_batch)}
+
     fig, ax = plt.subplots(figsize=(3.5, 3.2))
-    for cond in uniq:
-        m = conds == cond
-        ax.scatter(
-            xs[m], ys[m],
-            s=55, c=colour[cond], edgecolors="black", linewidths=0.5,
-            label=cond, zorder=3,
-        )
+    if show_batch:
+        for cond in uniq:
+            for b in uniq_batch:
+                m = (conds == cond) & (batches == b)
+                if m.any():
+                    ax.scatter(xs[m], ys[m], s=55, c=colour[cond],
+                               marker=batch_marker[b], edgecolors="black",
+                               linewidths=0.5, zorder=3)
+    else:
+        for cond in uniq:
+            m = conds == cond
+            ax.scatter(xs[m], ys[m], s=55, c=colour[cond], edgecolors="black",
+                       linewidths=0.5, zorder=3)
 
     for i, sid in enumerate(pb.obs_names):
         ax.annotate(
@@ -378,8 +407,22 @@ def plot_sample_pca(
     ax.set_title("Sample-level PCA (pseudobulk)")
     ax.axhline(0, color="grey", lw=0.4, ls="--", zorder=1)
     ax.axvline(0, color="grey", lw=0.4, ls="--", zorder=1)
+
+    # Condition legend (colour); plus a batch legend (marker shape) when shown.
     if len(uniq) > 1:
-        ax.legend(title=condition_key, frameon=False, loc="best")
+        cond_handles = [Line2D([0], [0], marker="o", ls="", markerfacecolor=colour[c],
+                               markeredgecolor="black", markersize=7, label=c)
+                        for c in uniq]
+        leg1 = ax.legend(handles=cond_handles, title=condition_key, frameon=False,
+                         loc="best", fontsize=5.5)
+        ax.add_artist(leg1)
+    if show_batch:
+        batch_handles = [Line2D([0], [0], marker=batch_marker[b], ls="",
+                                markerfacecolor="lightgrey", markeredgecolor="black",
+                                markersize=7, label=b) for b in uniq_batch]
+        ax.legend(handles=batch_handles, title=batch_key, frameon=False,
+                  loc="lower right", fontsize=5.5)
+
     fig.tight_layout()
     return _savefig(fig, Path(output_dir) / "sample_pca_scatter", fmt=fmt, dpi=dpi)
 
@@ -502,6 +545,7 @@ def sample_level_pca_analysis(
     output_dir: Path | str,
     sample_key: str = "replicate",
     condition_key: str = "condition",
+    batch_key: str = "batch",
     n_top_genes: int = 0,
     scale_genes: bool = False,
     base_panel_only: bool = True,
@@ -538,13 +582,15 @@ def sample_level_pca_analysis(
     if base_panel_only:
         adata = _restrict_to_base_panel(adata)
 
-    pb = pseudobulk_samples(adata, sample_key=sample_key, condition_key=condition_key)
+    pb = pseudobulk_samples(adata, sample_key=sample_key, condition_key=condition_key,
+                            batch_key=batch_key)
     pb = normalize_pseudobulk(pb)
     pb = run_sample_pca(
         pb, n_top_genes=n_top_genes, scale_genes=scale_genes, random_state=random_state,
     )
 
-    plot_sample_pca(pb, condition_key=condition_key, output_dir=output_dir, fmt=fmt, dpi=dpi)
+    plot_sample_pca(pb, condition_key=condition_key, batch_key=batch_key,
+                    output_dir=output_dir, fmt=fmt, dpi=dpi)
     plot_sample_correlation(pb, condition_key=condition_key, output_dir=output_dir, fmt=fmt, dpi=dpi)
     plot_scree(pb, output_dir=output_dir, fmt=fmt, dpi=dpi)
 
@@ -552,7 +598,8 @@ def sample_level_pca_analysis(
     vr = pb.uns["pca"]["variance_ratio"]
     pc_cols = [f"PC{i+1}" for i in range(pb.obsm["X_pca"].shape[1])]
     coord_df = pd.DataFrame(pb.obsm["X_pca"], index=pb.obs_names, columns=pc_cols)
-    meta_cols = [c for c in (condition_key, "n_cells", "total_counts") if c in pb.obs.columns]
+    meta_cols = [c for c in (condition_key, batch_key, "n_cells", "total_counts")
+                 if c in pb.obs.columns]
     coord_df = pb.obs[meta_cols].join(coord_df)
     coord_path = output_dir / "sample_pca_coordinates.csv"
     coord_df.to_csv(coord_path)
