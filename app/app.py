@@ -19,7 +19,7 @@ from pathlib import Path
 
 import sys as _sys
 _sys.path.insert(0, str(Path(__file__).parent))
-from ui_utils import inject_css, page_header
+from ui_utils import inject_css, page_header, prune_orphan_rois
 
 st.set_page_config(
     page_title            = "Xenium Sample PCA",
@@ -83,6 +83,7 @@ def _rois_saved() -> int:
     slide_ids = {s["slide_id"] for s in st.session_state["slides"]}
     return sum(1 for sid in st.session_state["roi_polygons"] if sid in slide_ids)
 
+prune_orphan_rois()  # keep roi_polygons clean of slides no longer configured
 configured = _slides_configured()
 n_slides   = len(st.session_state["slides"])
 n_roi      = _rois_saved()

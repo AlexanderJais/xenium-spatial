@@ -11,7 +11,7 @@ import streamlit as st
 from pathlib import Path
 
 import sys as _sys; _sys.path.insert(0, str(__import__('pathlib').Path(__file__).parent.parent))
-from ui_utils import inject_css, page_header
+from ui_utils import inject_css, page_header, prune_orphan_rois
 
 st.set_page_config(page_title="Study Setup · Xenium Sample PCA", page_icon="📁", layout="wide",
     initial_sidebar_state="expanded")
@@ -254,6 +254,7 @@ if delete_key is not None:
         # Drop the deleted row's widget state so its values can't leak elsewhere.
         for prefix in ("cond_", "slide_id_", "run_dir_", "del_slide_"):
             st.session_state.pop(f"{prefix}{delete_key}", None)
+        prune_orphan_rois()  # drop the removed slide's ROI from the in-memory dict
         st.rerun()
 
 st.session_state["slides"] = slides
@@ -367,6 +368,7 @@ with col_load:
             cfg = json.load(uploaded)
             if "slides" in cfg:
                 st.session_state["slides"] = _ensure_keys(cfg["slides"])
+                prune_orphan_rois()  # drop ROIs for slides not in the new config
             for k in ["base_panel_csv", "output_dir", "roi_cache_dir", "leiden_resolution"]:
                 if k in cfg:
                     st.session_state[k] = cfg[k]

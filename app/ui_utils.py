@@ -25,6 +25,24 @@ def inject_css():
     )
 
 
+def prune_orphan_rois() -> int:
+    """Drop in-memory ``roi_polygons`` entries whose slide ID is no longer in
+    the configured study, so counts can't exceed the number of slides.
+
+    Only the in-session dict is cleaned — the persistent ``roi_cache`` JSON
+    files are left untouched, so a slide that is removed and re-added later
+    still reloads its saved ROI. Returns the number of entries removed.
+    """
+    polygons = st.session_state.get("roi_polygons")
+    if not polygons:
+        return 0
+    slide_ids = {s["slide_id"] for s in st.session_state.get("slides", [])}
+    orphans = [sid for sid in polygons if sid not in slide_ids]
+    for sid in orphans:
+        del polygons[sid]
+    return len(orphans)
+
+
 def page_header(title: str, subtitle: str = ""):
     """Render the standard dark gradient page header."""
     safe_title = _html.escape(title)
