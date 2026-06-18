@@ -21,7 +21,7 @@ Outputs a single concatenated AnnData with:
   .obs['replicate']   : "AGED_1" ... "AGED_4" / "ADULT_1" ... "ADULT_4"
   .obs['slide_id']    : original slide identifier
   .obs['roi_name']    : ROI label (e.g. "MBH") if ROI was applied
-  .var['panel_type']  : "base" | "custom"
+  .var['panel_type']  : "base" | "custom_shared" | "custom_unique"
   .var['cell_type_annotation'] : from Xenium metadata CSV
   .var['zero_filled_any']      : gene zero-filled in >=1 slide
   .var['n_slides_zero_filled'] : number of slides zero-filled for the gene
@@ -102,15 +102,17 @@ class SlideManifest:
         first cell looks like a path or an identifier.
         """
         csv_path = Path(csv_path)
-        df_raw = pd.read_csv(csv_path, header=None)
+        df_raw = pd.read_csv(csv_path, header=None, dtype=str)
 
-        # Auto-detect whether the first row is a header.
-        # Heuristic: if the third cell of the first row is NOT a valid path
-        # on disk (i.e. it looks like a column name such as "run_dir"), treat
-        # the first row as a header.  This handles absolute paths, relative
-        # paths, and non-standard directory names correctly.
-        first_cell_path = Path(str(df_raw.iloc[0, 2]))
-        has_header = not (first_cell_path.exists() or first_cell_path.is_absolute())
+        # Auto-detect whether the first row is a header by matching its cells
+        # against the known column names. This is robust regardless of whether
+        # the run_dir paths are absolute, relative, or point at data not present
+        # on this machine — a filesystem probe (the previous approach) misfired
+        # on a headerless manifest whose relative paths don't resolve here,
+        # silently consuming the first slide as a phantom header row.
+        _known_cols = {"slide_id", "condition", "run_dir", "replicate_id"}
+        first_row = {str(v).strip().lower() for v in df_raw.iloc[0].tolist()}
+        has_header = len(first_row & _known_cols) >= 2
 
         if has_header:
             df = pd.read_csv(csv_path)
@@ -183,10 +185,18 @@ class MultiSlideLoader:
     roi_selector:
         Optional ROISelector. If provided, saved ROIs are applied per slide.
     panel_mode:
-        'intersection' : keep only base panel genes present in all slides.
-        'union'        : include all genes, zero-fill missing custom genes.
+        'intersection'  : keep only base panel genes present in all slides.
+        'partial_union' : base genes + custom genes in >= min_slides slides
+                          (the default; zero-fills the gaps). Recommended.
+        'union'         : include all genes, zero-fill missing custom genes.
+    min_slides:
+        Minimum slides a custom gene must appear in to be retained under
+        'partial_union'. Ignored for the other modes. Default 2.
     apply_roi:
         If True and a roi_selector is given, filter cells to ROI per slide.
+    output_dir:
+        Where to write the per-slide ``panel_validation.csv`` report. Falls
+        back to the current working directory when not set.
     """
 
     def __init__(

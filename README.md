@@ -53,7 +53,8 @@ pip install -e ".[dev]"       # everything, plus pytest
 ```
 
 The `requirements.txt` (`pip install -r requirements.txt`) remains as a
-pinned superset if you prefer not to use extras.
+single-file superset (same lower-bound version constraints as the extras) if
+you prefer not to use extras.
 
 The core workflow (Study Setup → ROI Manager → Sample PCA, and the
 `scripts/run_sample_pca.py` CLI) uses an intentionally small dependency set:

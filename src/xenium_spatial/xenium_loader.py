@@ -281,12 +281,14 @@ def _align_cells_to_barcodes(
     n_bc = len(barcodes)
     barcodes_str = [str(b) for b in barcodes]
 
-    # Strategy 1: cells_df has a 'cell_id' column -> use it as index
+    # Strategy 1: cells_df has a 'cell_id' column -> use it as index.
+    # Work on a copy so a failed match here does not leave the column promoted
+    # to the index when Strategy 2 falls back to the original frame's index.
     for col in ["cell_id", "Cell ID", "cellid", "CellID"]:
         if col in cells_df.columns:
-            cells_df = cells_df.set_index(col)
-            cells_df.index = cells_df.index.astype(str)
-            matched = cells_df.reindex(barcodes_str)
+            by_id = cells_df.set_index(col)
+            by_id.index = by_id.index.astype(str)
+            matched = by_id.reindex(barcodes_str)
             n_matched = matched.notna().any(axis=1).sum() if not matched.empty else 0
             if n_matched > 0:
                 logger.info(
