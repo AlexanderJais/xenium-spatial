@@ -77,7 +77,11 @@ def _slides_configured() -> int:
                if s["run_dir"] and Path(s["run_dir"]).exists())
 
 def _rois_saved() -> int:
-    return len(st.session_state["roi_polygons"])
+    # Count only ROIs belonging to currently-configured slides. The
+    # roi_polygons dict can retain stale entries (previous study configs,
+    # imports, copy-to-other-slides), so len() would overcount past n_slides.
+    slide_ids = {s["slide_id"] for s in st.session_state["slides"]}
+    return sum(1 for sid in st.session_state["roi_polygons"] if sid in slide_ids)
 
 configured = _slides_configured()
 n_slides   = len(st.session_state["slides"])
