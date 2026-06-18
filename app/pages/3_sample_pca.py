@@ -15,30 +15,18 @@ import pandas as pd
 import streamlit as st
 
 import sys as _sys; _sys.path.insert(0, str(__import__('pathlib').Path(__file__).parent.parent))
-from ui_utils import inject_css, page_header
+from ui_utils import inject_css, page_header, init_session_state
 
 st.set_page_config(page_title="Sample PCA · Xenium Sample PCA", page_icon="📊", layout="wide",
     initial_sidebar_state="expanded")
 
 inject_css()
+init_session_state()
 # Make the xenium_spatial package importable when the app is run without an
 # editable install (src layout: the package lives under <repo>/src).
 _ROOT = Path(__file__).parent.parent.parent
 if str(_ROOT / "src") not in sys.path:
     sys.path.insert(0, str(_ROOT / "src"))
-
-# ── Session state ─────────────────────────────────────────────────────────────
-for k, v in {
-    "slides"        : [],
-    "roi_polygons"  : {},
-    "roi_cache_dir" : str(Path(__file__).parent.parent.parent / "roi_cache"),
-    "base_panel_csv": str(Path(__file__).parent.parent.parent / "data" / "Xenium_mBrain_v1_1_metadata.csv"),
-    "output_dir"    : str(Path.home() / "xenium_sample_pca_output"),
-    "panel_mode"    : "partial_union",
-    "min_slides"    : 2,
-}.items():
-    if k not in st.session_state:
-        st.session_state[k] = v
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────

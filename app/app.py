@@ -13,13 +13,12 @@ Four steps:
 Run with:  streamlit run app/app.py
 """
 
-import json
 import streamlit as st
 from pathlib import Path
 
 import sys as _sys
 _sys.path.insert(0, str(Path(__file__).parent))
-from ui_utils import inject_css, page_header, prune_orphan_rois
+from ui_utils import inject_css, page_header, prune_orphan_rois, init_session_state
 
 st.set_page_config(
     page_title            = "Xenium Sample PCA",
@@ -29,47 +28,7 @@ st.set_page_config(
 )
 
 inject_css()
-
-# ── Shared session-state defaults ───────────────────────────────────────────
-DEFAULTS = {
-    "slides": [
-        {"slide_id": f"AGED_{i}",  "condition": "AGED",  "run_dir": ""}
-        for i in range(1, 5)
-    ] + [
-        {"slide_id": f"ADULT_{i}", "condition": "ADULT", "run_dir": ""}
-        for i in range(1, 5)
-    ],
-    "base_panel_csv": str(Path(__file__).parent.parent / "data" / "Xenium_mBrain_v1_1_metadata.csv"),
-    "output_dir"    : str(Path.home() / "xenium_sample_pca_output"),
-    "roi_cache_dir" : str(Path(__file__).parent.parent / "roi_cache"),
-    "panel_mode"    : "partial_union",
-    "min_slides"    : 2,
-    "roi_polygons"  : {},
-    "leiden_resolution": 0.6,
-    "n_pcs"         : 50,
-}
-for k, v in DEFAULTS.items():
-    if k not in st.session_state:
-        st.session_state[k] = v
-
-
-# Restore a previously applied Leiden resolution so the optimizer's choice
-# survives an app restart (the optimizer page persists it to this file).
-def _load_persisted_resolution() -> None:
-    settings_path = (Path(st.session_state["output_dir"])
-                     / "leiden_optimizer" / "pipeline_settings.json")
-    if not settings_path.exists():
-        return
-    try:
-        saved = json.loads(settings_path.read_text())
-        if "leiden_resolution" in saved:
-            st.session_state["leiden_resolution"] = float(saved["leiden_resolution"])
-    except Exception:
-        pass
-
-if "_resolution_restored" not in st.session_state:
-    _load_persisted_resolution()
-    st.session_state["_resolution_restored"] = True
+init_session_state()
 
 
 # ── Derived state ────────────────────────────────────────────────────────────
@@ -101,9 +60,12 @@ def _current_step() -> int:
         return 2
     if not pca_done:
         return 3
-    return 4
+    if not leiden_done:
+        return 4
+    return 5  # every step complete
 
 current_step = _current_step()
+all_done = current_step == 5
 
 STEP_LABELS = ["Study Setup", "ROI Manager", "Sample PCA", "Leiden Optimizer"]
 
@@ -128,7 +90,7 @@ with col1:
 with col2:
     st.metric("ROIs saved", f"{n_roi} / {n_slides}")
 with col3:
-    st.metric("Sample PCA", "ready" if pca_done else "—")
+    st.metric("Sample PCA", "✓ done" if pca_done else "—")
 with col4:
     st.metric("Leiden resolution", f"{st.session_state['leiden_resolution']:.2f}")
 with col5:
@@ -139,7 +101,7 @@ st.divider()
 st.markdown("#### Workflow")
 STEPS = [
     (1, "Study Setup", "Enter the path to each Xenium run folder; a green tick confirms it is valid. Save/load the full config as JSON."),
-    (2, "ROI Manager", "Frame the mediobasal hypothalamus on each section with the interactive scatter; a dashed orange ellipse marks the atlas hint."),
+    (2, "ROI Manager", "Frame the mediobasal hypothalamus on each section by dragging a box on the interactive scatter (or fine-tuning the edge sliders); the live cell count updates as you go."),
     (3, "Sample PCA",  "Pseudobulk each slide and run PCA across the samples — see how samples and the condition groups separate."),
     (4, "Leiden Optimizer", "Estimate how many PCs to keep with the elbow plot, then sweep Leiden resolutions on the cells, score each with silhouette / modularity / spatial coherence, and apply the best to the pipeline settings."),
 ]
@@ -178,10 +140,14 @@ CTA_PAGES = {1: "pages/1_study_setup.py", 2: "pages/2_roi_manager.py",
 CTA_LABELS = {1: "→ Configure slides", 2: "→ Draw ROIs",
               3: "→ Run sample PCA", 4: "→ Optimize Leiden resolution"}
 st.markdown("<br>", unsafe_allow_html=True)
-try:
-    st.page_link(CTA_PAGES[current_step], label=CTA_LABELS[current_step], icon="▶")
-except (AttributeError, KeyError):
-    st.info(f"Next step: **{STEP_LABELS[current_step - 1]}** — use the sidebar to navigate.")
+if all_done:
+    st.success("✅ All steps complete — revisit any page from the sidebar to "
+               "review or re-run your results.")
+else:
+    try:
+        st.page_link(CTA_PAGES[current_step], label=CTA_LABELS[current_step], icon="▶")
+    except (AttributeError, KeyError):
+        st.info(f"Next step: **{STEP_LABELS[current_step - 1]}** — use the sidebar to navigate.")
 
 st.divider()
 st.markdown(

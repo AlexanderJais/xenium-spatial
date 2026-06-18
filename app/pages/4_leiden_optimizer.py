@@ -18,7 +18,7 @@ import pandas as pd
 import streamlit as st
 
 import sys as _sys; _sys.path.insert(0, str(__import__('pathlib').Path(__file__).parent.parent))
-from ui_utils import inject_css, page_header
+from ui_utils import inject_css, page_header, init_session_state
 
 st.set_page_config(
     page_title="Leiden Optimizer · Xenium Sample PCA",
@@ -27,47 +27,13 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 inject_css()
+init_session_state()
 
 _ROOT = Path(__file__).parent.parent.parent
 # Make the xenium_spatial package importable without an editable install
 # (src layout: the package lives under <repo>/src).
 if str(_ROOT / "src") not in sys.path:
     sys.path.insert(0, str(_ROOT / "src"))
-
-# ── Session state ─────────────────────────────────────────────────────────────
-for k, v in {
-    "slides"        : [],
-    "roi_polygons"  : {},
-    "roi_cache_dir" : str(_ROOT / "roi_cache"),
-    "base_panel_csv": str(_ROOT / "data" / "Xenium_mBrain_v1_1_metadata.csv"),
-    "output_dir"    : str(Path.home() / "xenium_sample_pca_output"),
-    "panel_mode"    : "partial_union",
-    "min_slides"    : 2,
-    "leiden_resolution"            : 0.6,
-    "n_pcs"                        : 50,
-    "optimizer_results"            : None,
-    "optimizer_best"               : None,
-    "optimizer_best_row"           : None,
-    "optimizer_cluster_assignments": None,
-}.items():
-    if k not in st.session_state:
-        st.session_state[k] = v
-
-# Restore a previously applied resolution when this page is opened directly
-# (deep-link), so it doesn't show the 0.6 default until the home page is visited.
-if "_resolution_restored" not in st.session_state:
-    _settings = (Path(st.session_state["output_dir"])
-                 / "leiden_optimizer" / "pipeline_settings.json")
-    if _settings.exists():
-        try:
-            _saved = json.loads(_settings.read_text())
-            if "leiden_resolution" in _saved:
-                st.session_state["leiden_resolution"] = float(_saved["leiden_resolution"])
-            if "n_pcs" in _saved:
-                st.session_state["n_pcs"] = int(_saved["n_pcs"])
-        except Exception:
-            pass
-    st.session_state["_resolution_restored"] = True
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────

@@ -11,28 +11,14 @@ import streamlit as st
 from pathlib import Path
 
 import sys as _sys; _sys.path.insert(0, str(__import__('pathlib').Path(__file__).parent.parent))
-from ui_utils import inject_css, page_header, prune_orphan_rois
+from ui_utils import inject_css, page_header, prune_orphan_rois, init_session_state
 
 st.set_page_config(page_title="Study Setup · Xenium Sample PCA", page_icon="📁", layout="wide",
     initial_sidebar_state="expanded")
 
 
 inject_css()
-# ── Shared defaults (duplicated here so pages work standalone) ───────────────
-if "slides" not in st.session_state:
-    st.session_state["slides"] = [
-        {"slide_id": f"AGED_{i}",  "condition": "AGED",  "run_dir": ""} for i in range(1,5)
-    ] + [
-        {"slide_id": f"ADULT_{i}", "condition": "ADULT", "run_dir": ""} for i in range(1,5)
-    ]
-for k, v in {
-    "base_panel_csv": str(Path(__file__).parent.parent.parent / "data" / "Xenium_mBrain_v1_1_metadata.csv"),
-    "output_dir"    : str(Path.home() / "xenium_sample_pca_output"),
-    "roi_cache_dir" : str(Path(__file__).parent.parent.parent / "roi_cache"),
-    "leiden_resolution": 0.6,
-}.items():
-    if k not in st.session_state:
-        st.session_state[k] = v
+init_session_state()
 
 
 def _ensure_keys(slides: list) -> list:
