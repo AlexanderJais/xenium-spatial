@@ -266,9 +266,10 @@ class MultiSlideLoader:
 
         # Save validation table — use the configured output_dir if set,
         # otherwise fall back to the current working directory.
-        _out_dir = getattr(self, "output_dir", None) or Path.cwd()
-        val_path = Path(_out_dir) / "panel_validation.csv"
+        _out_dir = Path(getattr(self, "output_dir", None) or Path.cwd())
+        val_path = _out_dir / "panel_validation.csv"
         try:
+            _out_dir.mkdir(parents=True, exist_ok=True)
             validation.drop(
                 columns=["missing_base_genes", "custom_genes"], errors="ignore"
             ).to_csv(val_path, index=False)

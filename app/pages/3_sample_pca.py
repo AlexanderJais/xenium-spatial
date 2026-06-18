@@ -47,7 +47,7 @@ def _roi_signature(slide_ids, roi_dir) -> tuple:
 
 @st.cache_resource(show_spinner=False)
 def _load_combined(run_dirs, slide_ids, conditions, batches, base_csv,
-                   roi_dir, use_roi, panel_mode, min_slides, roi_sig):
+                   roi_dir, use_roi, panel_mode, min_slides, roi_sig, output_dir=None):
     """Load + harmonise + ROI-filter + concatenate all slides (cached).
 
     ``roi_sig`` is the per-slide ROI-file signature (see ``_roi_signature``).
@@ -71,6 +71,7 @@ def _load_combined(run_dirs, slide_ids, conditions, batches, base_csv,
     loader = MultiSlideLoader(
         manifest=manifest, panel_registry=registry, roi_selector=roi_selector,
         panel_mode=panel_mode, min_slides=min_slides, apply_roi=use_roi,
+        output_dir=output_dir,
     )
     return loader.load_all()
 
@@ -177,7 +178,7 @@ if run:
                 st.session_state["base_panel_csv"],
                 st.session_state["roi_cache_dir"], use_roi,
                 st.session_state["panel_mode"], int(st.session_state["min_slides"]),
-                roi_sig,
+                roi_sig, st.session_state["output_dir"],
             )
 
         with st.spinner("Running PCA and rendering figures …"):

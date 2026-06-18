@@ -56,7 +56,7 @@ def _roi_signature(slide_ids, roi_dir) -> tuple:
 def _load_and_preprocess(run_dirs, slide_ids, conditions, batches, base_csv, roi_dir,
                          use_roi, panel_mode, min_slides, roi_sig,
                          base_panel_only, n_pcs, n_neighbors, scale_genes,
-                         batch_key):
+                         batch_key, output_dir=None):
     """Load + harmonise + ROI-filter + concatenate slides, then build the
     cell-level PCA embedding and KNN graph the Leiden sweep needs (cached).
 
@@ -82,6 +82,7 @@ def _load_and_preprocess(run_dirs, slide_ids, conditions, batches, base_csv, roi
     loader = MultiSlideLoader(
         manifest=manifest, panel_registry=registry, roi_selector=roi_selector,
         panel_mode=panel_mode, min_slides=min_slides, apply_roi=use_roi,
+        output_dir=output_dir,
     )
     adata = loader.load_all()
 
@@ -97,7 +98,7 @@ def _load_and_preprocess(run_dirs, slide_ids, conditions, batches, base_csv, roi
 @st.cache_data(show_spinner=False)
 def _estimate_pca_elbow(run_dirs, slide_ids, conditions, base_csv, roi_dir,
                         use_roi, panel_mode, min_slides, roi_sig,
-                        base_panel_only, scale_genes, max_pcs):
+                        base_panel_only, scale_genes, max_pcs, output_dir=None):
     """Load + embed the slides with a generous PCA, then return the elbow-plot
     data and the recommended number of PCs.
 
@@ -121,6 +122,7 @@ def _estimate_pca_elbow(run_dirs, slide_ids, conditions, base_csv, roi_dir,
     loader = MultiSlideLoader(
         manifest=manifest, panel_registry=registry, roi_selector=roi_selector,
         panel_mode=panel_mode, min_slides=min_slides, apply_roi=use_roi,
+        output_dir=output_dir,
     )
     adata = loader.load_all()
     if base_panel_only:
@@ -368,6 +370,7 @@ with st.expander("📐 How many PCs? — elbow plot", expanded=True):
                     st.session_state["roi_cache_dir"], use_roi,
                     st.session_state["panel_mode"], int(st.session_state["min_slides"]),
                     roi_sig, bool(base_panel_only), bool(scale_genes), 50,
+                    st.session_state["output_dir"],
                 )
             st.session_state["pca_elbow"] = elbow
         except Exception as e:
@@ -493,7 +496,7 @@ if run_clicked:
                 st.session_state["roi_cache_dir"], use_roi,
                 st.session_state["panel_mode"], int(st.session_state["min_slides"]),
                 roi_sig, bool(base_panel_only), int(n_pcs), int(n_neighbors),
-                bool(scale_genes), batch_key,
+                bool(scale_genes), batch_key, st.session_state["output_dir"],
             )
 
         has_spatial = "spatial" in adata.obsm
