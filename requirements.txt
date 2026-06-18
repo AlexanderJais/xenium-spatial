@@ -1,0 +1,29 @@
+# Xenium Sample PCA — Python dependencies
+# Install with: pip install -r requirements.txt
+# Or use: ./install_mac.sh (macOS, sets up a conda env automatically)
+
+# ── Web interface ──────────────────────────────────────────────────────────────
+streamlit >= 1.35
+plotly >= 5.20
+
+# ── Core scientific stack ─────────────────────────────────────────────────────
+numpy >= 1.26
+pandas >= 2.1
+scipy >= 1.12
+matplotlib >= 3.8
+scikit-learn >= 1.3
+
+# ── Data structures ───────────────────────────────────────────────────────────
+anndata >= 0.10
+
+# ── Single-cell clustering (Leiden Optimizer) ────────────────────────────────
+# Only needed for the 🔎 Leiden Optimizer page; the Sample-PCA workflow runs
+# without these. scanpy supplies normalise/PCA/neighbours/leiden; igraph +
+# leidenalg back the Leiden community detection and modularity scoring.
+scanpy >= 1.10
+igraph >= 0.11
+leidenalg >= 0.10
+harmonypy >= 0.0.9          # batch integration across slides (Harmony toggle)
+
+# ── Parquet support (cells.parquet) ──────────────────────────────────────────
+pyarrow >= 14.0

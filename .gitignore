@@ -1,0 +1,44 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.egg-info/
+.eggs/
+dist/
+build/
+
+# Environments
+.env
+.venv
+venv/
+xenium_sample_pca/
+
+# Cache directories
+*_cache/
+roi_cache/
+
+# Output data
+*.h5ad
+*.h5
+*.log
+
+# Figures output (keep structure, ignore generated files)
+outputs/
+*_output/
+figures_output/
+
+# Packaging / test artifacts
+*.egg-info/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# macOS
+.DS_Store
+
+# IDE
+.vscode/
+.idea/

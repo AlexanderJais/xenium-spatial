@@ -1,0 +1,319 @@
+# Xenium Sample PCA
+
+**Sample-level (pseudobulk) PCA for AGED vs ADULT mouse brain (mediobasal hypothalamus)**
+
+A streamlined tool for the first exploratory steps of a [10x Genomics Xenium](https://www.10xgenomics.com/platforms/xenium) spatial study: load the slides, frame the mediobasal hypothalamus (MBH) region on each, collapse every slide into a pseudobulk profile, and run PCA across the samples to see **how the samples cluster and how the AGED and ADULT groups separate**. When you are ready to move from samples to cells, an optional **Leiden Optimizer** sweeps clustering resolutions on the single cells and recommends the one that best balances cluster quality and granularity — so the resolution you take into cell-level analysis is chosen by metrics, not by eye.
+
+Built around a multi-replicate, two-condition study using the `Xenium_mBrain_v1_1` base panel (~247 genes) plus per-slide custom panels (~50 genes each, partially overlapping). The default example is 4 AGED + 4 ADULT brain sections, but **the number of slides and the condition labels are not fixed** — add or remove slides in **Study Setup** (or the `SLIDES` list / a manifest CSV for the CLI), use whatever group names your study needs, and select any subset of slides to analyse at each step (the Sample PCA needs ≥ 2 samples).
+
+Runs entirely on your machine. No data leaves your computer.
+
+---
+
+## Table of contents
+
+- [Two ways to run](#two-ways-to-run)
+- [Installation](#installation)
+- [Web interface](#web-interface)
+- [Command line](#command-line)
+- [How the PCA works](#how-the-pca-works)
+- [How the Leiden Optimizer works](#how-the-leiden-optimizer-works)
+- [Panel structure](#panel-structure)
+- [Outputs](#outputs)
+- [Configuration file format](#configuration-file-format)
+- [Project structure](#project-structure)
+- [Requirements](#requirements)
+- [Troubleshooting](#troubleshooting)
+- [Citation](#citation)
+
+---
+
+## Two ways to run
+
+| Method | Command | Best for |
+|--------|---------|----------|
+| **A. Web interface** (recommended) | `streamlit run app/app.py` | Interactive ROI framing, inline Nature-style figures |
+| **B. Command line** | `python scripts/run_sample_pca.py` | Scripted/headless runs once ROIs are saved |
+
+Both paths share the same loader, ROI cache (`roi_cache/`), and PCA module (`src/xenium_spatial/sample_pca.py`). See the [Quick Start guide](QUICKSTART_MAC.md) for step-by-step instructions.
+
+---
+
+## Installation
+
+The project is a `src`-layout Python package (`xenium_spatial`). Install it
+editable so the package is importable from anywhere:
+
+```bash
+cd /path/to/xenium-spatial-analysis
+pip install -e .              # core: sample-PCA workflow + scripts/run_sample_pca.py
+pip install -e ".[app]"       # + the Streamlit web interface
+pip install -e ".[clustering]"  # + the single-cell Leiden Optimizer stack
+pip install -e ".[dev]"       # everything, plus pytest
+```
+
+The `requirements.txt` (`pip install -r requirements.txt`) remains as a
+pinned superset if you prefer not to use extras.
+
+The core workflow (Study Setup → ROI Manager → Sample PCA, and the
+`scripts/run_sample_pca.py` CLI) uses an intentionally small dependency set:
+NumPy/pandas/SciPy/scikit-learn/Matplotlib + AnnData for data handling,
+Streamlit/Plotly for the UI, PyArrow for `cells.parquet`. No DESeq2 is required.
+
+The **Leiden Optimizer** (step 4) is the one part that needs the single-cell stack — `scanpy`, `igraph`, `leidenalg`, and `harmonypy` (the `clustering` extra). These are imported lazily, so the Sample-PCA workflow runs fine even if they are not installed; you only need them to run the resolution sweep.
+
+> **macOS Apple Silicon:** `./install_mac.sh` creates a native ARM64 conda environment and installs everything for you.
+
+---
+
+## Web interface
+
+```bash
+streamlit run app/app.py
+```
+
+Or double-click `start_app.command` in Finder. Your browser opens at http://localhost:8501.
+
+The app has four steps:
+
+| Step | Page | Purpose |
+|------|------|---------|
+| 1 | **📁 Study Setup** | Enter the path to each Xenium output directory — add or remove slides as needed (any number, any condition labels; the default is 4 AGED + 4 ADULT). A green tick confirms each is valid and shows its gene/cell counts. Save/load the full config as JSON. |
+| 2 | **🗺️ ROI Manager** | Interactive Plotly scatter per slide. Use the four edge sliders to frame the MBH bounding rectangle; the cell count updates live. A dashed orange ellipse marks the atlas hint. Manual coordinate entry is available as a fallback. ROIs are saved to `roi_cache/` and reused automatically. |
+| 3 | **📊 Sample PCA** | Loads the slides, applies the saved ROIs, pseudobulks each sample, and runs PCA across them. Shows the Nature-style PCA scatter (coloured by group), a hierarchically-clustered sample correlation heatmap, and a scree plot — inline, with PDF/CSV downloads. |
+| 4 | **🔎 Leiden Optimizer** | Loads and ROI-filters the same slides, builds a single-cell PCA + KNN graph (with optional **Harmony** batch correction across slides, on by default for multi-slide runs so clusters reflect cell type rather than which slide a cell came from), then sweeps a grid of Leiden resolutions. The **📐 How many PCs? — elbow plot** tool (under *Preprocessing*) estimates how many principal components to keep before you sweep. Each resolution is scored on silhouette, Calinski-Harabasz, Davies-Bouldin, spatial coherence, and modularity; a weighted combined score recommends the best. A clustree shows how clusters split/merge, and one click applies the chosen resolution to the pipeline settings (persisted to the output dir and the study-config JSON). Needs `scanpy`, `igraph`, `leidenalg`, and `harmonypy`. |
+
+---
+
+## Command line
+
+Once paths and ROIs are set (the runner reads the same `roi_cache/`):
+
+```bash
+python scripts/run_sample_pca.py                 # load all configured slides, base panel only, run PCA
+python scripts/run_sample_pca.py --samples AGED_1 ADULT_1   # run on a subset (>=2 samples)
+python scripts/run_sample_pca.py --all-genes     # include per-slide add-on genes, not just the base panel
+python scripts/run_sample_pca.py --no-roi        # use whole sections (skip ROI filtering)
+python scripts/run_sample_pca.py --n-top-genes 200 --scale-genes   # restrict to top-variable genes, z-scored
+python scripts/run_sample_pca.py --fmt png       # PNG instead of PDF figures
+```
+
+Slide paths are configured at the top of `scripts/run_sample_pca.py` (the `SLIDES` list), mirroring the web app's Study Setup. By default the PCA is restricted to the shared base panel and uses every configured slide; `--samples` selects a subset (minimum 2) and `--all-genes` opts back into the add-on genes. The web app's Sample PCA page exposes the same controls (a sample multiselect and a "Base panel only" toggle).
+
+---
+
+## How the PCA works
+
+The analysis lives in `src/xenium_spatial/sample_pca.py` and runs in four steps:
+
+0. **Restrict to the base panel** (default) — drop per-slide add-on genes so every sample is compared on the shared `Xenium_mBrain_v1_1` panel (~247 genes). This matters because samples can carry different add-on panels; pass `--all-genes` (or untick "Base panel only") to keep them.
+1. **Pseudobulk** (`pseudobulk_samples`) — sum raw counts across all cells of each slide, giving one expression profile per biological replicate (one point per sample).
+2. **Normalise** (`normalize_pseudobulk`) — library-size normalise each sample to counts-per-million, then `log1p`. Without this, PCA would just rank samples by cell number / sequencing depth.
+3. **PCA** (`run_sample_pca`) — PCA across samples via scikit-learn. Uses all (base panel) genes by default (recommended for targeted Xenium panels); optionally restricts to the top-variable genes and/or z-scores genes.
+4. **Plot** — a PC1/PC2 scatter coloured by group with sample labels, a sample-by-sample correlation heatmap ordered by hierarchical clustering, and a scree plot. (With only two samples PCA yields a single component, so the scatter spreads the samples along PC1.)
+
+Pseudobulk PCA is the standard QC / sanity-check for replicated studies (cf. DESeq2's `plotPCA`): each point is one biological replicate, so it is robust at n=4 per group, and it makes outlier slides immediately visible.
+
+---
+
+## How the Leiden Optimizer works
+
+The optimizer lives in `src/xenium_spatial/leiden_optimizer.py` and is driven by the **🔎 Leiden Optimizer** page. Where the Sample PCA collapses each slide to one point, the optimizer works at the **single-cell** level to answer the next question: *at what resolution should the cells be clustered?*
+
+It runs in three stages:
+
+1. **Load + embed** (`preprocess_for_clustering`) — the same slides and ROIs as the Sample PCA are loaded and concatenated, then a single-cell embedding is built on the fly: `normalize_total` → `log1p` → PCA → `sc.pp.neighbors` (the KNN graph). `obsm['spatial']` is carried through so spatial metrics stay available. The refactored pipeline only pseudobulks the cells, so this substrate (a PCA embedding + neighbour graph) does not otherwise exist — the optimizer builds it itself.
+   - **How many PCs?** — rather than guessing the number of principal components for the KNN graph, the page's **📐 How many PCs? — elbow plot** tool estimates it from the data. It uses the two-criterion [HBC elbow heuristic](https://hbctraining.github.io/scRNA-seq/lessons/elbow_plot_metric.html) (`compute_elbow_n_pcs`): the recommended cutoff is the more conservative of (a) the first PC past 90% cumulative variation that itself adds < 5%, and (b) the last PC whose drop in variation to the next is still > 0.1%. Every embedding also records this recommendation in `adata.uns['pca_elbow']`, and `plot_pca_elbow` saves the scree/elbow figure.
+2. **Optional Harmony integration** (`run_harmony`) — when several slides are pooled, plain PCA tends to separate cells by *which slide* they came from rather than by cell type. Harmony corrects the embedding (batch = `slide_id`) before the neighbour graph is built, so clustering and every metric below are computed on the batch-corrected space. On by default for multi-slide runs.
+3. **Resolution sweep** (`optimize_leiden_resolution`) — Leiden clustering is run across a grid of resolutions, and each is scored with five complementary cluster-quality metrics:
+
+| Metric | Direction | What it captures |
+|--------|-----------|------------------|
+| Silhouette | higher = better | Cluster separation in PCA / Harmony space |
+| Calinski-Harabasz | higher = better | Between- vs within-cluster variance ratio |
+| Davies-Bouldin | lower = better | Average similarity to the most-similar cluster |
+| Spatial coherence | higher = better | Fraction of each cell's spatial neighbours in the same cluster |
+| Modularity | higher = better | Community structure quality on the KNN graph |
+
+Each metric is min-max normalised to [0, 1] and combined into a single weighted score. With spatial coordinates the weights are **silhouette 30% · Calinski-Harabasz 15% · Davies-Bouldin 15% · spatial coherence 20% · modularity 20%**; without them, silhouette and modularity each take 35%. The resolution with the highest combined score is recommended.
+
+The page shows the per-metric curves, a **clustree** (Sankey diagram of how clusters split and merge across resolutions), and a one-click **Apply** that writes the chosen resolution to the pipeline settings. Silhouette is O(n²), so metrics are computed on a subsample (50k cells by default).
+
+> **Caveat for replicate designs.** With a 4 + 4 design each slide *is* a biological replicate of its condition, so correcting on `slide_id` can also attenuate genuine AGED-vs-ADULT signal. The page warns when this applies; after a sweep, confirm the recommended clusters still show the expected condition composition before relying on them.
+
+---
+
+## Panel structure
+
+Every Xenium run produces one count matrix containing all genes for that slide:
+
+| Group | Count | Description |
+|-------|-------|-------------|
+| **Base panel** | ~247 | `Xenium_mBrain_v1_1` — identical across all slides |
+| **Custom panel** | ~50 | Additional genes — differs between slides, partial overlap |
+| **Total** | ~297 | Stored together in `matrix.mtx.gz` |
+
+`PanelRegistry` classifies each gene by comparing names against the base panel CSV and harmonises the slides to a common gene set before concatenation.
+
+### Harmonisation modes
+
+| Mode | Custom genes kept | Recommended when |
+|------|-------------------|------------------|
+| `intersection` | None (base only) | You only need the 247 base panel genes |
+| **`partial_union`** | Present in ≥ `min_slides` slides | **Default — best for this study** |
+| `union` | All custom genes | Exploratory analysis only |
+
+In `partial_union` mode, slides missing a retained custom gene receive a zero-filled column. Because a gene can be zero-filled in one slide yet measured in another, the concatenated AnnData records this per slide in `adata.varm['zero_filled_by_slide']` (genes × slides), with study-level summaries in `adata.var['zero_filled_any']` and `adata.var['n_slides_zero_filled']`.
+
+---
+
+## Outputs
+
+All files are written to `<output_dir>/sample_pca/` (web app) or `figures_output_sample_pca/` (CLI):
+
+| File | Description |
+|------|-------------|
+| `sample_pca_scatter.pdf` | PC1 vs PC2, coloured by group, samples labelled (Nature-style) |
+| `sample_correlation_heatmap.pdf` | Sample-by-sample correlation, hierarchically ordered |
+| `sample_pca_scree.pdf` | Variance explained per PC + cumulative line |
+| `sample_pca_coordinates.csv` | PC coordinates + condition / n_cells / total_counts per sample |
+| `sample_pca_variance.csv` | Variance ratio and cumulative variance per PC |
+| `pseudobulk_samples.h5ad` | Pseudobulk AnnData (counts, lognorm, `obsm['X_pca']`) |
+
+Figures follow **Nature Publishing Group** conventions: Arial fonts, thin spines, editable PDF (Type 42 fonts), colour-blind-safe [Wong (2011)](https://doi.org/10.1038/nmeth.1618) group colours.
+
+The Leiden Optimizer writes to `<output_dir>/leiden_optimizer/`:
+
+| File | Description |
+|------|-------------|
+| `leiden_resolution_sweep.csv` | Per-resolution metrics (n_clusters, silhouette, CH, DB, spatial coherence, modularity, combined score) |
+| `pipeline_settings.json` | The applied `leiden_resolution`, restored on app start and merged into the study config |
+
+The recommended resolution is also stored in session state and saved with the study configuration JSON from **Study Setup**, so it travels with the rest of your settings.
+
+---
+
+## Configuration file format
+
+Study Setup can save/load a JSON configuration so you never re-enter paths:
+
+```json
+{
+  "slides": [
+    { "run_dir": "/path/to/AGED_1_output", "slide_id": "AGED_1", "condition": "AGED" }
+  ],
+  "output_dir": "/path/to/results",
+  "base_panel_csv": "data/Xenium_mBrain_v1_1_metadata.csv",
+  "roi_cache_dir": "roi_cache",
+  "leiden_resolution": 0.6
+}
+```
+
+Only `slides` is required; the rest fall back to sensible defaults. `leiden_resolution` is filled in by the Leiden Optimizer when you apply a recommendation (default `0.6` until then).
+
+---
+
+## Project structure
+
+```
+xenium-spatial-analysis/
+├── pyproject.toml               Packaging metadata + optional-dependency extras
+├── requirements.txt             Pinned dependency superset (alternative to extras)
+├── LICENSE                      MIT
+├── start_app.command            Double-click to launch the web interface
+├── install_mac.sh               macOS installer (Apple Silicon)
+│
+├── src/
+│   └── xenium_spatial/          Core analysis library (the installable package)
+│       ├── __init__.py          Lazy public API (SlideManifest, PanelRegistry, …)
+│       ├── xenium_loader.py     Load a Xenium run directory into AnnData
+│       ├── multislide_loader.py Multi-slide manifest, validation, concat
+│       ├── panel_registry.py    Gene classification and panel harmonisation
+│       ├── roi_selector.py      ROI persistence + apply (reads roi_cache/)
+│       ├── sample_pca.py        Pseudobulk, normalise, PCA, and figures
+│       └── leiden_optimizer.py  Cell-level embedding, elbow PC selection, Leiden sweep
+│
+├── app/                         Web interface (Streamlit)
+│   ├── app.py                   4-step landing page
+│   ├── ui_utils.py              Shared CSS injection and page header
+│   ├── styles.css               Custom Streamlit styles
+│   ├── .streamlit/config.toml   Theme and server settings
+│   └── pages/
+│       ├── 1_study_setup.py     Slide folder configuration + JSON save/load
+│       ├── 2_roi_manager.py     Interactive ROI framing (Plotly + atlas hint)
+│       ├── 3_sample_pca.py      Pseudobulk PCA + Nature-style figures
+│       └── 4_leiden_optimizer.py  Elbow plot, resolution sweep, scoring, clustree
+│
+├── scripts/
+│   └── run_sample_pca.py        CLI entry point for the sample PCA
+│
+├── tests/                       pytest suite (e.g. the elbow-metric tests)
+│
+├── data/
+│   └── Xenium_mBrain_v1_1_metadata.csv   Base panel gene list + annotations
+│
+└── .github/workflows/ci.yml     Lint/test on push + PR
+```
+
+---
+
+## Requirements
+
+See [`requirements.txt`](requirements.txt). Key packages:
+
+| Package | Min version | Purpose |
+|---------|-------------|---------|
+| streamlit | 1.35 | Web interface |
+| plotly | 5.20 | Interactive ROI scatter |
+| numpy / pandas / scipy | — | Core numerics |
+| scikit-learn | 1.3 | PCA |
+| matplotlib | 3.8 | Nature-style figures |
+| anndata | 0.10 | Annotated data matrices |
+| pyarrow | 14.0 | Parquet support (`cells.parquet`) |
+
+Leiden Optimizer only (step 4 — lazily imported, not needed for Sample PCA):
+
+| Package | Min version | Purpose |
+|---------|-------------|---------|
+| scanpy | 1.10 | Normalisation, PCA, neighbour graph, Leiden |
+| igraph | 0.11 | Graph backend + modularity |
+| leidenalg | 0.10 | Leiden community detection |
+| harmonypy | 0.0.9 | Cross-slide batch integration (Harmony) |
+
+---
+
+## Troubleshooting
+
+**ROI sliders not responding**
+Refresh the page (Cmd+R / Ctrl+R). If it persists, use the manual coordinate entry panel to type x,y pairs directly.
+
+**`cell_feature_matrix/` not found**
+The selected path must be the Xenium run output directory itself, not a parent folder. It must directly contain `cell_feature_matrix/` (with `matrix.mtx.gz`, `barcodes.tsv.gz`, `features.tsv.gz`) and `cells.parquet`.
+
+**PCA separates samples by cell number, not biology**
+This usually means library-size normalisation was bypassed. The built-in workflow always CPM-normalises before PCA; if you are calling the functions directly, run `normalize_pseudobulk` before `run_sample_pca`.
+
+**Custom genes not appearing after harmonisation**
+Lower `min_slides`, or switch `panel_mode` to `union`.
+
+**Leiden clusters track the slide instead of cell type**
+This is batch effect across slides. Enable **Harmony batch correction** on the Leiden Optimizer page (on by default for multi-slide runs) so clustering happens on the integrated embedding. See the [replicate-design caveat](#how-the-leiden-optimizer-works) before trusting the result.
+
+**`No module named 'scanpy'` on the Leiden Optimizer page**
+The optimizer needs the single-cell stack. Install it with `pip install -e ".[clustering]"` (or `pip install scanpy igraph leidenalg harmonypy`); the other three pages do not require it.
+
+**ROI selects 0 cells**
+The MBH sits in the ventral 50–80% of a coronal section (larger y, since y increases toward ventral). Re-frame using the dashed orange atlas-hint ellipse as a guide.
+
+---
+
+## Citation
+
+If you use this tool, please cite the underlying methods:
+
+| Tool | Reference |
+|------|-----------|
+| scikit-learn (PCA) | Pedregosa et al., *JMLR* 2011 |
+| AnnData | Virshup et al., *JOSS* 2024 |
+| Colour palette | Wong, *Nature Methods* 2011 |
+| Xenium | 10x Genomics Xenium In Situ platform |
