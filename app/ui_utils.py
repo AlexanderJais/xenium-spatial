@@ -17,6 +17,27 @@ from pathlib import Path
 # Repo root (this file lives at <repo>/app/ui_utils.py).
 _ROOT = Path(__file__).parent.parent
 
+
+def applied_n_pcs(output_dir, default: int = 50) -> int:
+    """The PCA-component count the Leiden Optimizer last *applied*, read from the
+    persisted ``pipeline_settings.json``.
+
+    Use this — not ``st.session_state['n_pcs']`` — anywhere outside the optimizer
+    page. ``n_pcs`` is the optimizer number_input's widget key, and Streamlit
+    drops widget-keyed session state on pages that don't render that widget, so
+    the session value silently falls back to the default. The settings file is
+    the stable source of truth.
+    """
+    import json
+    p = Path(output_dir) / "leiden_optimizer" / "pipeline_settings.json"
+    if p.exists():
+        try:
+            return int(json.loads(p.read_text()).get("n_pcs", default))
+        except Exception:
+            return default
+    return default
+
+
 # ── Logging ──────────────────────────────────────────────────────────────────
 LOG_DIR = _ROOT / "logs"
 LOG_FILE = LOG_DIR / "xenium_app.log"
