@@ -88,7 +88,6 @@ prune_orphan_rois()  # keep roi_polygons clean of slides no longer configured
 configured = _slides_configured()
 n_slides   = len(st.session_state["slides"])
 n_roi      = _rois_saved()
-panel_ok   = Path(st.session_state["base_panel_csv"]).exists()
 pca_done   = (Path(st.session_state["output_dir"]) / "sample_pca"
               / "sample_pca_scatter.pdf").exists()
 leiden_done = (Path(st.session_state["output_dir"]) / "leiden_optimizer"
@@ -106,6 +105,8 @@ def _current_step() -> int:
 
 current_step = _current_step()
 
+STEP_LABELS = ["Study Setup", "ROI Manager", "Sample PCA", "Leiden Optimizer"]
+
 
 def _step_state(step_n: int) -> str:
     done_map = {1: configured > 0, 2: n_roi > 0, 3: pca_done, 4: leiden_done}
@@ -113,79 +114,6 @@ def _step_state(step_n: int) -> str:
         return "done"
     return "current" if step_n == current_step else "pending"
 
-
-# ── Sidebar ───────────────────────────────────────────────────────────────────
-with st.sidebar:
-    st.markdown("""
-    <div style="padding:1rem 0 0.5rem; text-align:center;">
-        <div style="font-size:2rem; margin-bottom:0.25rem;">🧠</div>
-        <div style="font-size:1rem; font-weight:600; color:#FFFFFF; letter-spacing:-0.01em;">
-            Xenium Sample PCA
-        </div>
-        <div style="font-size:11px; color:rgba(255,255,255,0.55); margin-top:2px;">
-            Pseudobulk PCA · AGED vs ADULT
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
-
-    st.divider()
-
-    STEP_LABELS = ["Study Setup", "ROI Manager", "Sample PCA", "Leiden Optimizer"]
-    steps_html = []
-    for i, label in enumerate(STEP_LABELS, 1):
-        state = _step_state(i)
-        if state == "done":
-            circle = ('<span style="min-width:20px;height:20px;background:#0A7E6E;color:#fff;'
-                      'border-radius:50%;display:inline-flex;align-items:center;justify-content:center;'
-                      'font-size:10px;font-weight:700;flex-shrink:0;">✓</span>')
-            text_style, label_html = "color:rgba(255,255,255,0.65);", label
-        elif state == "current":
-            circle = (f'<span style="min-width:20px;height:20px;background:#90C8F0;color:#0F2E52;'
-                      f'border-radius:50%;display:inline-flex;align-items:center;justify-content:center;'
-                      f'font-size:10px;font-weight:700;flex-shrink:0;">{i}</span>')
-            text_style, label_html = "color:#FFFFFF;font-weight:600;", f"<strong>{label}</strong>"
-        else:
-            circle = (f'<span style="min-width:20px;height:20px;background:rgba(255,255,255,0.12);'
-                      f'color:rgba(255,255,255,0.4);border-radius:50%;display:inline-flex;'
-                      f'align-items:center;justify-content:center;font-size:10px;font-weight:600;'
-                      f'flex-shrink:0;">{i}</span>')
-            text_style, label_html = "color:rgba(255,255,255,0.40);", label
-        steps_html.append(
-            f'<div style="display:flex;align-items:center;gap:0.6rem;padding:0.35rem 0;{text_style}">'
-            f'{circle}<span style="font-size:12px;">{label_html}</span></div>'
-        )
-    st.markdown('<div style="padding:0.25rem 0;">' + "\n".join(steps_html) + "</div>",
-                unsafe_allow_html=True)
-
-    st.divider()
-
-    def _ok(c: bool) -> str:
-        return ('<span class="pill pill-ok">✓</span>' if c
-                else '<span class="pill pill-missing">✗</span>')
-
-    st.markdown(f"""
-    <div style="font-size:11.5px; line-height:2.3;">
-        <div style="display:flex;justify-content:space-between;align-items:center;">
-            <span>Base panel CSV</span> {_ok(panel_ok)}</div>
-        <div style="display:flex;justify-content:space-between;align-items:center;">
-            <span>Slides configured</span> {_ok(configured > 0)}</div>
-        <div style="display:flex;justify-content:space-between;align-items:center;">
-            <span>ROIs defined</span> {_ok(n_roi > 0)}</div>
-        <div style="display:flex;justify-content:space-between;align-items:center;">
-            <span>PCA complete</span> {_ok(pca_done)}</div>
-        <div style="display:flex;justify-content:space-between;align-items:center;">
-            <span>Leiden resolution</span>
-            <span class="pill" style="background:rgba(144,200,240,0.18);color:#90C8F0;">
-                {st.session_state['leiden_resolution']:.2f}</span></div>
-    </div>
-    """, unsafe_allow_html=True)
-
-    st.markdown("""
-    <div style="position:absolute; bottom:1.5rem; left:1rem; right:1rem;
-                font-size:10px; color:rgba(255,255,255,0.30); text-align:center;">
-        Runs entirely on your local machine.<br>No data leaves this computer.
-    </div>
-    """, unsafe_allow_html=True)
 
 
 # ── Home ────────────────────────────────────────────────────────────────────
