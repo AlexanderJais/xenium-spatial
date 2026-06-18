@@ -53,10 +53,10 @@ def _roi_signature(slide_ids, roi_dir) -> tuple:
 
 
 @st.cache_resource(show_spinner=False)
-def _load_and_preprocess(run_dirs, slide_ids, conditions, base_csv, roi_dir,
+def _load_and_preprocess(run_dirs, slide_ids, conditions, batches, base_csv, roi_dir,
                          use_roi, panel_mode, min_slides, roi_sig,
                          base_panel_only, n_pcs, n_neighbors, scale_genes,
-                         batch_key):
+                         batch_key, output_dir=None):
     """Load + harmonise + ROI-filter + concatenate slides, then build the
     cell-level PCA embedding and KNN graph the Leiden sweep needs (cached).
 
@@ -72,8 +72,9 @@ def _load_and_preprocess(run_dirs, slide_ids, conditions, base_csv, roi_dir,
     from xenium_spatial.leiden_optimizer import preprocess_for_clustering
 
     manifest = SlideManifest()
-    for sid, cond, d in zip(slide_ids, conditions, run_dirs):
-        manifest.add(slide_id=sid, condition=cond, run_dir=d, replicate_id=sid)
+    for sid, cond, d, b in zip(slide_ids, conditions, run_dirs, batches):
+        manifest.add(slide_id=sid, condition=cond, run_dir=d, replicate_id=sid,
+                     batch=b or sid)
 
     registry = PanelRegistry(base_csv)
     roi_selector = ROISelector(cache_dir=roi_dir) if use_roi else None
@@ -81,6 +82,7 @@ def _load_and_preprocess(run_dirs, slide_ids, conditions, base_csv, roi_dir,
     loader = MultiSlideLoader(
         manifest=manifest, panel_registry=registry, roi_selector=roi_selector,
         panel_mode=panel_mode, min_slides=min_slides, apply_roi=use_roi,
+        output_dir=output_dir,
     )
     adata = loader.load_all()
 
@@ -96,7 +98,7 @@ def _load_and_preprocess(run_dirs, slide_ids, conditions, base_csv, roi_dir,
 @st.cache_data(show_spinner=False)
 def _estimate_pca_elbow(run_dirs, slide_ids, conditions, base_csv, roi_dir,
                         use_roi, panel_mode, min_slides, roi_sig,
-                        base_panel_only, scale_genes, max_pcs):
+                        base_panel_only, scale_genes, max_pcs, output_dir=None):
     """Load + embed the slides with a generous PCA, then return the elbow-plot
     data and the recommended number of PCs.
 
@@ -120,6 +122,7 @@ def _estimate_pca_elbow(run_dirs, slide_ids, conditions, base_csv, roi_dir,
     loader = MultiSlideLoader(
         manifest=manifest, panel_registry=registry, roi_selector=roi_selector,
         panel_mode=panel_mode, min_slides=min_slides, apply_roi=use_roi,
+        output_dir=output_dir,
     )
     adata = loader.load_all()
     if base_panel_only:
@@ -314,6 +317,9 @@ with p2:
                                      "dropping per-slide add-on genes so the embedding is "
                                      "comparable across slides.")
 with p3:
+    # Clamp a restored/config-loaded value into the widget's range before it is
+    # instantiated; seeding the key with an out-of-range value would raise.
+    st.session_state["n_pcs"] = max(2, min(200, int(st.session_state.get("n_pcs", 50))))
     n_pcs = st.number_input("PCA components", min_value=2, max_value=200, step=5, key="n_pcs",
                             help="Principal components used for the embedding and KNN graph. "
                                  "Not sure how many? Use the elbow-plot tool just below to "
@@ -332,15 +338,16 @@ with o2:
     use_harmony = st.toggle(
         "Harmony batch correction", value=(n_selected > 1),
         disabled=(n_selected < 2),
-        help="Integrate slides with Harmony on the PCA embedding (batch = slide_id) "
-             "before building the graph, so clusters reflect cell type rather than "
-             "which slide a cell came from. Strongly recommended when pooling many "
-             "slides. Requires harmonypy.",
+        help="Integrate slides with Harmony on the PCA embedding before building "
+             "the graph, using each slide's **batch** label (set it in Study "
+             "Setup; defaults to slide_id). Use a batch shared across conditions "
+             "(e.g. sequencing run/date) to remove technical variation without "
+             "erasing the condition difference. Requires harmonypy.",
     )
     if n_selected < 2:
         st.caption("Only one slide selected — nothing to integrate.")
     elif use_harmony:
-        st.caption("Clusters will be computed on the Harmony-corrected embedding (batch = `slide_id`).")
+        st.caption("Clusters will be computed on the Harmony-corrected embedding (batch = `batch`).")
 
 # ── How many PCs? (elbow plot) ────────────────────────────────────────────────
 with st.expander("📐 How many PCs? — elbow plot", expanded=True):
@@ -366,6 +373,7 @@ with st.expander("📐 How many PCs? — elbow plot", expanded=True):
                     st.session_state["roi_cache_dir"], use_roi,
                     st.session_state["panel_mode"], int(st.session_state["min_slides"]),
                     roi_sig, bool(base_panel_only), bool(scale_genes), 50,
+                    st.session_state["output_dir"],
                 )
             st.session_state["pca_elbow"] = elbow
         except Exception as e:
@@ -400,21 +408,33 @@ with st.expander("📐 How many PCs? — elbow plot", expanded=True):
         )
         st.plotly_chart(fig_elbow, use_container_width=True)
 
-batch_key = "slide_id" if (use_harmony and len(selected_slides) > 1) else None
+batch_key = "batch" if (use_harmony and len(selected_slides) > 1) else None
 
 if batch_key is not None:
-    _sel_conds = sorted({s["condition"] for s in selected_slides})
-    # In the usual replicate design each slide is one biological replicate of a
-    # single condition, so correcting on slide_id also absorbs between-replicate
-    # (and thus some between-condition) biology — Korsunsky et al. 2019.
-    if len(_sel_conds) >= 2:
+    # Map each batch label to the conditions it spans. If every batch sits inside
+    # a single condition (e.g. the default where batch == slide_id), Harmony pulls
+    # the conditions together and can erase the very difference under study. If
+    # batches are *crossed* with condition (a batch contains multiple conditions,
+    # e.g. one sequencing run with both AGED and ADULT), correction removes
+    # technical variation while preserving the condition signal.
+    from collections import defaultdict
+    _batch_conds = defaultdict(set)
+    for s in selected_slides:
+        _batch_conds[s.get("batch") or s["slide_id"]].add(s["condition"])
+    _n_conds = len({s["condition"] for s in selected_slides})
+    _crossed = any(len(cs) > 1 for cs in _batch_conds.values())
+    if _n_conds >= 2 and not _crossed:
         st.warning(
-            "⚠️ Harmony's batch key is `slide_id`, and each slide here is a "
-            f"separate biological replicate of its condition ({', '.join(_sel_conds)}). "
-            "Harmony corrects between-replicate variation, which can also remove "
-            "genuine between-condition signal. After the sweep, confirm the "
-            "clusters still show the expected condition composition before "
-            "trusting the recommendation."
+            "⚠️ Every batch label maps to a single condition, so Harmony will "
+            "correct **across** conditions and may remove genuine between-condition "
+            "signal. In **Study Setup**, set a `batch` that is shared across "
+            "conditions (e.g. the sequencing run / capture date) so each batch "
+            "contains both conditions."
+        )
+    elif _n_conds >= 2 and _crossed:
+        st.success(
+            "✓ Batches are crossed with condition — Harmony will remove technical "
+            "batch variation while preserving the condition difference."
         )
 
 st.divider()
@@ -470,15 +490,16 @@ if run_clicked:
             run_dirs   = tuple(str(s["run_dir"]) for s in selected_slides)
             sids       = tuple(s["slide_id"] for s in selected_slides)
             conditions = tuple(s["condition"] for s in selected_slides)
+            batches    = tuple((s.get("batch") or s["slide_id"]) for s in selected_slides)
             roi_sig    = _roi_signature(sids, st.session_state["roi_cache_dir"])
 
             adata = _load_and_preprocess(
-                run_dirs, sids, conditions,
+                run_dirs, sids, conditions, batches,
                 st.session_state["base_panel_csv"],
                 st.session_state["roi_cache_dir"], use_roi,
                 st.session_state["panel_mode"], int(st.session_state["min_slides"]),
                 roi_sig, bool(base_panel_only), int(n_pcs), int(n_neighbors),
-                bool(scale_genes), batch_key,
+                bool(scale_genes), batch_key, st.session_state["output_dir"],
             )
 
         has_spatial = "spatial" in adata.obsm

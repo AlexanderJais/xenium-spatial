@@ -46,8 +46,8 @@ def _roi_signature(slide_ids, roi_dir) -> tuple:
 
 
 @st.cache_resource(show_spinner=False)
-def _load_combined(run_dirs, slide_ids, conditions, base_csv,
-                   roi_dir, use_roi, panel_mode, min_slides, roi_sig):
+def _load_combined(run_dirs, slide_ids, conditions, batches, base_csv,
+                   roi_dir, use_roi, panel_mode, min_slides, roi_sig, output_dir=None):
     """Load + harmonise + ROI-filter + concatenate all slides (cached).
 
     ``roi_sig`` is the per-slide ROI-file signature (see ``_roi_signature``).
@@ -61,8 +61,9 @@ def _load_combined(run_dirs, slide_ids, conditions, base_csv,
     from xenium_spatial.roi_selector import ROISelector
 
     manifest = SlideManifest()
-    for sid, cond, d in zip(slide_ids, conditions, run_dirs):
-        manifest.add(slide_id=sid, condition=cond, run_dir=d, replicate_id=sid)
+    for sid, cond, d, b in zip(slide_ids, conditions, run_dirs, batches):
+        manifest.add(slide_id=sid, condition=cond, run_dir=d, replicate_id=sid,
+                     batch=b or sid)
 
     registry = PanelRegistry(base_csv)
     roi_selector = ROISelector(cache_dir=roi_dir) if use_roi else None
@@ -70,6 +71,7 @@ def _load_combined(run_dirs, slide_ids, conditions, base_csv,
     loader = MultiSlideLoader(
         manifest=manifest, panel_registry=registry, roi_selector=roi_selector,
         panel_mode=panel_mode, min_slides=min_slides, apply_roi=use_roi,
+        output_dir=output_dir,
     )
     return loader.load_all()
 
@@ -168,14 +170,15 @@ if run:
             run_dirs   = tuple(str(s["run_dir"]) for s in selected_slides)
             sids       = tuple(s["slide_id"] for s in selected_slides)
             conditions = tuple(s["condition"] for s in selected_slides)
+            batches    = tuple((s.get("batch") or s["slide_id"]) for s in selected_slides)
             roi_sig    = _roi_signature(sids, st.session_state["roi_cache_dir"])
 
             adata = _load_combined(
-                run_dirs, sids, conditions,
+                run_dirs, sids, conditions, batches,
                 st.session_state["base_panel_csv"],
                 st.session_state["roi_cache_dir"], use_roi,
                 st.session_state["panel_mode"], int(st.session_state["min_slides"]),
-                roi_sig,
+                roi_sig, st.session_state["output_dir"],
             )
 
         with st.spinner("Running PCA and rendering figures …"):
@@ -213,6 +216,15 @@ if scatter_png.exists():
     left, right = st.columns([3, 2])
     with left:
         st.image(str(scatter_png), caption="Sample-level PCA (pseudobulk)", use_container_width=True)
+        # Same "batch groups samples" test as plot_sample_pca's show_batch guard,
+        # so the caption never claims shape-encoding the figure didn't draw.
+        _batches = [(s.get("batch") or s["slide_id"]) for s in selected_slides]
+        if 1 < len(set(_batches)) < len(selected_slides):
+            st.caption(
+                "Marker **shape** = batch, **colour** = condition. If samples group "
+                "by shape rather than colour, a technical batch — not the condition — "
+                "is driving the separation."
+            )
     with right:
         scree_png = out_root / "sample_pca_scree.png"
         if scree_png.exists():

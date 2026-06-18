@@ -20,6 +20,7 @@ Outputs a single concatenated AnnData with:
   .obs['condition']   : "AGED" | "ADULT"
   .obs['replicate']   : "AGED_1" ... "AGED_4" / "ADULT_1" ... "ADULT_4"
   .obs['slide_id']    : original slide identifier
+  .obs['batch']       : technical batch label for Harmony (defaults to slide_id)
   .obs['roi_name']    : ROI label (e.g. "MBH") if ROI was applied
   .var['panel_type']  : "base" | "custom_shared" | "custom_unique"
   .var['cell_type_annotation'] : from Xenium metadata CSV
@@ -78,13 +79,22 @@ class SlideManifest:
         condition: str,
         run_dir: Path | str,
         replicate_id: Optional[str] = None,
+        batch: Optional[str] = None,
     ) -> "SlideManifest":
-        """Register one slide."""
+        """Register one slide.
+
+        ``batch`` is the technical batch label used for Harmony integration
+        (e.g. a sequencing run or capture date). When omitted it falls back to
+        ``slide_id`` — i.e. every slide is its own batch, reproducing the
+        pre-batch behaviour. Set it to a value shared across conditions to
+        correct technical variation without removing the condition difference.
+        """
         entry = {
             "slide_id"    : slide_id,
             "condition"   : condition,
             "run_dir"     : Path(run_dir),
             "replicate_id": replicate_id or slide_id,
+            "batch"       : batch or slide_id,
         }
         self._slides.append(entry)
         return self
@@ -110,7 +120,7 @@ class SlideManifest:
         # on this machine — a filesystem probe (the previous approach) misfired
         # on a headerless manifest whose relative paths don't resolve here,
         # silently consuming the first slide as a phantom header row.
-        _known_cols = {"slide_id", "condition", "run_dir", "replicate_id"}
+        _known_cols = {"slide_id", "condition", "run_dir", "replicate_id", "batch"}
         first_row = {str(v).strip().lower() for v in df_raw.iloc[0].tolist()}
         has_header = len(first_row & _known_cols) >= 2
 
@@ -125,7 +135,15 @@ class SlideManifest:
         col_names = ["slide_id", "condition", "run_dir"]
         if df.shape[1] >= 4:
             col_names.append("replicate_id")
+        if df.shape[1] >= 5:
+            col_names.append("batch")
         df.columns = col_names + list(df.columns[len(col_names):])
+
+        def _opt(row, col):
+            # Optional cell -> str, but a blank/missing cell (NaN) becomes None so
+            # SlideManifest.add can apply its slide_id fallback instead of the
+            # literal string "nan".
+            return str(row[col]) if (col in row and pd.notna(row[col])) else None
 
         manifest = cls()
         for _, row in df.iterrows():
@@ -133,7 +151,8 @@ class SlideManifest:
                 slide_id     = str(row["slide_id"]),
                 condition    = str(row["condition"]),
                 run_dir      = Path(row["run_dir"]),
-                replicate_id = str(row["replicate_id"]) if "replicate_id" in row else None,
+                replicate_id = _opt(row, "replicate_id"),
+                batch        = _opt(row, "batch"),
             )
         logger.info("SlideManifest: loaded %d slides from %s", len(manifest), csv_path)
         return manifest
@@ -253,9 +272,10 @@ class MultiSlideLoader:
 
         # Save validation table — use the configured output_dir if set,
         # otherwise fall back to the current working directory.
-        _out_dir = getattr(self, "output_dir", None) or Path.cwd()
-        val_path = Path(_out_dir) / "panel_validation.csv"
+        _out_dir = Path(getattr(self, "output_dir", None) or Path.cwd())
+        val_path = _out_dir / "panel_validation.csv"
         try:
+            _out_dir.mkdir(parents=True, exist_ok=True)
             validation.drop(
                 columns=["missing_base_genes", "custom_genes"], errors="ignore"
             ).to_csv(val_path, index=False)
@@ -319,6 +339,8 @@ class MultiSlideLoader:
             # Study-level obs columns
             adata.obs["replicate"] = rep
             adata.obs["replicate"] = adata.obs["replicate"].astype("category")
+            adata.obs["batch"] = entry.get("batch", sid)
+            adata.obs["batch"] = adata.obs["batch"].astype("category")
 
             adatas.append(adata)
 
@@ -399,7 +421,7 @@ class MultiSlideLoader:
         combined.layers["counts"] = combined.X.copy()
 
         # Rebuild categorical columns
-        for col in ["condition", "replicate", "slide_id"]:
+        for col in ["condition", "replicate", "slide_id", "batch"]:
             if col in combined.obs.columns:
                 combined.obs[col] = combined.obs[col].astype("category")
 

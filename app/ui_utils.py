@@ -115,6 +115,7 @@ def init_session_state() -> None:
         "panel_mode"    : "partial_union",
         "min_slides"    : 2,
         "roi_polygons"  : {},
+        "roi_last_slide": None,
         "leiden_resolution"            : 0.6,
         "n_pcs"                        : 50,
         "optimizer_results"            : None,
@@ -146,7 +147,10 @@ def _restore_persisted_settings() -> None:
         if "leiden_resolution" in saved:
             st.session_state["leiden_resolution"] = float(saved["leiden_resolution"])
         if "n_pcs" in saved:
-            st.session_state["n_pcs"] = int(saved["n_pcs"])
+            # Clamp to the optimizer widget's range — a stale/edited settings file
+            # with n_pcs outside [2, 200] would otherwise crash the page when the
+            # number_input is seeded from session_state.
+            st.session_state["n_pcs"] = max(2, min(200, int(saved["n_pcs"])))
     except Exception:
         pass
 
@@ -181,6 +185,61 @@ def prune_orphan_rois() -> int:
     for sid in orphans:
         del polygons[sid]
     return len(orphans)
+
+
+def _is_under(child, parent) -> bool:
+    """True if ``child`` resolves to a location inside ``parent``."""
+    try:
+        Path(child).resolve().relative_to(Path(parent).resolve())
+        return True
+    except (ValueError, OSError, TypeError):
+        return False
+
+
+def paths_panel() -> None:
+    """Show where the app is running from and where each configured path points,
+    flagging any that live in a *different* checkout of this repo — the usual
+    cause of "my edit didn't apply" / stale ROIs when several copies coexist.
+    Offers a one-click reset of the repo-relative paths to this checkout.
+    """
+    repo = _ROOT
+    # (label, session key, expected inside this repo?)
+    specs = [
+        ("Base panel CSV", "base_panel_csv", True),
+        ("ROI cache",      "roi_cache_dir",  True),
+        ("Output dir",     "output_dir",     False),  # intentionally under $HOME
+    ]
+    with st.expander("🗂 Paths & environment"):
+        st.caption(f"App running from: `{repo}`")
+        mismatched = []
+        for label, key, want_inside in specs:
+            raw = st.session_state.get(key)
+            if not raw:  # None / "" from a malformed loaded config
+                st.markdown(f"**{label}** ❌ not set")
+                continue
+            p = Path(str(raw))
+            exists = p.exists()
+            outside = want_inside and not _is_under(p, repo)
+            if outside:
+                mismatched.append(label)
+            status = "✅" if exists else "❌ missing"
+            warn = " · ⚠️ **outside this checkout**" if outside else ""
+            st.markdown(f"**{label}** {status}{warn}  \n`{p}`")
+
+        if mismatched:
+            st.warning(
+                f"{', '.join(mismatched)} point outside `{repo}` — likely a second "
+                "copy of the project. Editing one checkout while the app reads "
+                "another leads to stale ROIs and 'my fix didn't apply'. Reset the "
+                "repo-relative paths to this checkout, or fix them in Study Setup."
+            )
+            if st.button("Reset paths to this checkout"):
+                st.session_state["base_panel_csv"] = str(
+                    repo / "data" / "Xenium_mBrain_v1_1_metadata.csv")
+                st.session_state["roi_cache_dir"] = str(repo / "roi_cache")
+                logging.getLogger("xenium_app").info(
+                    "Reset base_panel_csv/roi_cache_dir to %s", repo)
+                st.rerun()
 
 
 def page_header(title: str, subtitle: str = ""):

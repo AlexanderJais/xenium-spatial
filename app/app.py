@@ -19,7 +19,7 @@ from pathlib import Path
 import sys as _sys
 _sys.path.insert(0, str(Path(__file__).parent))
 from ui_utils import (inject_css, page_header, prune_orphan_rois,
-                      init_session_state, log_panel)
+                      init_session_state, log_panel, paths_panel)
 
 st.set_page_config(
     page_title            = "Xenium Sample PCA",
@@ -151,6 +151,7 @@ else:
         st.info(f"Next step: **{STEP_LABELS[current_step - 1]}** — use the sidebar to navigate.")
 
 st.divider()
+paths_panel()
 log_panel()
 
 st.markdown(

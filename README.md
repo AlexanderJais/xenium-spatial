@@ -18,6 +18,7 @@ Runs entirely on your machine. No data leaves your computer.
 - [Command line](#command-line)
 - [How the PCA works](#how-the-pca-works)
 - [How the Leiden Optimizer works](#how-the-leiden-optimizer-works)
+- [Batch correction](#batch-correction)
 - [Panel structure](#panel-structure)
 - [Outputs](#outputs)
 - [Configuration file format](#configuration-file-format)
@@ -79,10 +80,15 @@ The app has four steps:
 
 | Step | Page | Purpose |
 |------|------|---------|
-| 1 | **📁 Study Setup** | Enter the path to each Xenium output directory — add or remove slides as needed (any number, any condition labels; the default is 4 AGED + 4 ADULT). A green tick confirms each is valid and shows its gene/cell counts. Save/load the full config as JSON. |
-| 2 | **🗺️ ROI Manager** | Interactive Plotly scatter per slide. Use the four edge sliders to frame the MBH bounding rectangle; the cell count updates live. A dashed orange ellipse marks the atlas hint. Manual coordinate entry is available as a fallback. ROIs are saved to `roi_cache/` and reused automatically. |
-| 3 | **📊 Sample PCA** | Loads the slides, applies the saved ROIs, pseudobulks each sample, and runs PCA across them. Shows the Nature-style PCA scatter (coloured by group), a hierarchically-clustered sample correlation heatmap, and a scree plot — inline, with PDF/CSV downloads. |
-| 4 | **🔎 Leiden Optimizer** | Loads and ROI-filters the same slides, builds a single-cell PCA + KNN graph (with optional **Harmony** batch correction across slides, on by default for multi-slide runs so clusters reflect cell type rather than which slide a cell came from), then sweeps a grid of Leiden resolutions. The **📐 How many PCs? — elbow plot** tool (under *Preprocessing*) estimates how many principal components to keep before you sweep. Each resolution is scored on silhouette, Calinski-Harabasz, Davies-Bouldin, spatial coherence, and modularity; a weighted combined score recommends the best. A clustree shows how clusters split/merge, and one click applies the chosen resolution to the pipeline settings (persisted to the output dir and the study-config JSON). Needs `scanpy`, `igraph`, `leidenalg`, and `harmonypy`. |
+| 1 | **📁 Study Setup** | Enter the path to each Xenium output directory — add or remove slides as needed (any number, any condition labels; the default is 4 AGED + 4 ADULT). A green tick confirms each is valid and shows its gene/cell counts. An optional **Batch** column records a technical batch (e.g. sequencing run / capture date) for Harmony — see [batch correction](#batch-correction). Save/load the full config as JSON. |
+| 2 | **🗺️ ROI Manager** | Interactive Plotly scatter per slide. **Drag a box** on the tissue to frame the MBH bounding rectangle (or fine-tune with the four edge sliders); the cell count and the box dimensions update live. ◀/▶ buttons and an auto-advance toggle step through slides; an "All slides" table flags cell-count outliers. Manual coordinate entry is available as a fallback. ROIs are saved to `roi_cache/` and reused automatically. |
+| 3 | **📊 Sample PCA** | Loads the slides, applies the saved ROIs, pseudobulks each sample, and runs PCA across them. Shows the Nature-style PCA scatter (coloured by group; if a **batch** is set, batch is the marker *shape* so batch-vs-condition confounding is visible), a hierarchically-clustered sample correlation heatmap, and a scree plot — inline, with PDF/CSV downloads. |
+| 4 | **🔎 Leiden Optimizer** | Loads and ROI-filters the same slides, builds a single-cell PCA + KNN graph (with optional **Harmony** batch correction on each slide's **batch** label, on by default for multi-slide runs), then sweeps a grid of Leiden resolutions. The **📐 How many PCs? — elbow plot** tool (under *Preprocessing*) estimates how many principal components to keep before you sweep. Each resolution is scored on silhouette, Calinski-Harabasz, Davies-Bouldin, spatial coherence, and modularity; a weighted combined score recommends the best. A clustree shows how clusters split/merge, and one click applies the chosen resolution to the pipeline settings (persisted to the output dir and the study-config JSON). Needs `scanpy`, `igraph`, `leidenalg`, and `harmonypy`. |
+
+The landing page also carries a progress summary (slides configured, ROIs saved, Sample PCA status, Leiden resolution, PCA components) and two diagnostics in expanders:
+
+- **🗂 Paths & environment** — shows where the app is running from and where each configured path (base panel CSV, ROI cache, output dir) points, flags any that resolve to a *different* checkout of the project (a common cause of stale ROIs when several copies coexist), and offers a one-click reset of the repo-relative paths to the running checkout.
+- **🪵 Debug log** — the app and the `xenium_spatial` package write to a rotating log at `logs/xenium_app.log`. The panel shows the file location, a verbosity selector (DEBUG…ERROR), a tail preview, and download/clear buttons — attach this log when reporting an issue.
 
 ---
 
@@ -125,7 +131,7 @@ It runs in three stages:
 
 1. **Load + embed** (`preprocess_for_clustering`) — the same slides and ROIs as the Sample PCA are loaded and concatenated, then a single-cell embedding is built on the fly: `normalize_total` → `log1p` → PCA → `sc.pp.neighbors` (the KNN graph). `obsm['spatial']` is carried through so spatial metrics stay available. The refactored pipeline only pseudobulks the cells, so this substrate (a PCA embedding + neighbour graph) does not otherwise exist — the optimizer builds it itself.
    - **How many PCs?** — rather than guessing the number of principal components for the KNN graph, the page's **📐 How many PCs? — elbow plot** tool estimates it from the data. It uses the two-criterion [HBC elbow heuristic](https://hbctraining.github.io/scRNA-seq/lessons/elbow_plot_metric.html) (`compute_elbow_n_pcs`): the recommended cutoff is the more conservative of (a) the first PC past 90% cumulative variation that itself adds < 5%, and (b) the last PC whose drop in variation to the next is still > 0.1%. Every embedding also records this recommendation in `adata.uns['pca_elbow']`, and `plot_pca_elbow` saves the scree/elbow figure.
-2. **Optional Harmony integration** (`run_harmony`) — when several slides are pooled, plain PCA tends to separate cells by *which slide* they came from rather than by cell type. Harmony corrects the embedding (batch = `slide_id`) before the neighbour graph is built, so clustering and every metric below are computed on the batch-corrected space. On by default for multi-slide runs.
+2. **Optional Harmony integration** (`run_harmony`) — when several slides are pooled, plain PCA tends to separate cells by *which slide* they came from rather than by cell type. Harmony corrects the embedding (batch = each slide's **`batch`** label, see [batch correction](#batch-correction)) before the neighbour graph is built, so clustering and every metric below are computed on the batch-corrected space. On by default for multi-slide runs.
 3. **Resolution sweep** (`optimize_leiden_resolution`) — Leiden clustering is run across a grid of resolutions, and each is scored with five complementary cluster-quality metrics:
 
 | Metric | Direction | What it captures |
@@ -140,7 +146,17 @@ Each metric is min-max normalised to [0, 1] and combined into a single weighted 
 
 The page shows the per-metric curves, a **clustree** (Sankey diagram of how clusters split and merge across resolutions), and a one-click **Apply** that writes the chosen resolution to the pipeline settings. Silhouette is O(n²), so metrics are computed on a subsample (50k cells by default).
 
-> **Caveat for replicate designs.** With a 4 + 4 design each slide *is* a biological replicate of its condition, so correcting on `slide_id` can also attenuate genuine AGED-vs-ADULT signal. The page warns when this applies; after a sweep, confirm the recommended clusters still show the expected condition composition before relying on them.
+---
+
+## Batch correction
+
+Harmony (Leiden Optimizer) and the Sample-PCA scatter both use a per-slide **`batch`** label, set in **Study Setup** (blank = the slide's own `slide_id`). This carries through the loader to `adata.obs['batch']`.
+
+**Why it matters.** In a 4 + 4 replicate design, each slide *is* a biological replicate of its condition. If the batch is left at the default `slide_id`, Harmony integrates *across* the conditions and can attenuate genuine AGED-vs-ADULT signal — the very effect you are studying. To remove technical variation **without** erasing the condition difference, set a `batch` that is **shared across conditions** (e.g. the sequencing run / capture date, so each batch contains both AGED and ADULT slides). When batches are *crossed* with condition like this, Harmony corrects the run effect while preserving biology.
+
+The Leiden Optimizer checks this automatically: it warns when every batch maps to a single condition (confounded) and confirms when batches are crossed. On the Sample-PCA scatter, batch is drawn as the **marker shape** (condition stays the colour) — if samples group by shape rather than colour, a technical batch is driving the separation. (Sample PCA itself does not *correct* for batch — with one pseudobulk point per sample that would be inappropriate; the marker shape is a diagnostic.)
+
+A manifest CSV for the CLI may carry the batch as an optional 5th column (`slide_id, condition, run_dir, replicate_id, batch`).
 
 ---
 
@@ -177,7 +193,7 @@ All files are written to `<output_dir>/sample_pca/` (web app) or `figures_output
 | `sample_pca_scatter.pdf` | PC1 vs PC2, coloured by group, samples labelled (Nature-style) |
 | `sample_correlation_heatmap.pdf` | Sample-by-sample correlation, hierarchically ordered |
 | `sample_pca_scree.pdf` | Variance explained per PC + cumulative line |
-| `sample_pca_coordinates.csv` | PC coordinates + condition / n_cells / total_counts per sample |
+| `sample_pca_coordinates.csv` | PC coordinates + condition / batch / n_cells / total_counts per sample |
 | `sample_pca_variance.csv` | Variance ratio and cumulative variance per PC |
 | `pseudobulk_samples.h5ad` | Pseudobulk AnnData (counts, lognorm, `obsm['X_pca']`) |
 
@@ -192,6 +208,8 @@ The Leiden Optimizer writes to `<output_dir>/leiden_optimizer/`:
 
 The recommended resolution is also stored in session state and saved with the study configuration JSON from **Study Setup**, so it travels with the rest of your settings.
 
+A `panel_validation.csv` (per-slide base/custom gene breakdown) is written to the **output directory** alongside these results. The app's diagnostic log goes to `logs/xenium_app.log` (see the **🪵 Debug log** panel).
+
 ---
 
 ## Configuration file format
@@ -201,16 +219,17 @@ Study Setup can save/load a JSON configuration so you never re-enter paths:
 ```json
 {
   "slides": [
-    { "run_dir": "/path/to/AGED_1_output", "slide_id": "AGED_1", "condition": "AGED" }
+    { "run_dir": "/path/to/AGED_1_output", "slide_id": "AGED_1", "condition": "AGED", "batch": "run_0701" }
   ],
   "output_dir": "/path/to/results",
   "base_panel_csv": "data/Xenium_mBrain_v1_1_metadata.csv",
   "roi_cache_dir": "roi_cache",
-  "leiden_resolution": 0.6
+  "leiden_resolution": 0.6,
+  "n_pcs": 50
 }
 ```
 
-Only `slides` is required; the rest fall back to sensible defaults. `leiden_resolution` is filled in by the Leiden Optimizer when you apply a recommendation (default `0.6` until then).
+Only `slides` is required; the rest fall back to sensible defaults. Each slide's `batch` is optional (blank/absent → the slide's `slide_id`; see [batch correction](#batch-correction)). `leiden_resolution` and `n_pcs` are filled in by the Leiden Optimizer when you apply a recommendation (defaults `0.6` / `50` until then).
 
 ---
 
@@ -235,13 +254,13 @@ xenium-spatial-analysis/
 │       └── leiden_optimizer.py  Cell-level embedding, elbow PC selection, Leiden sweep
 │
 ├── app/                         Web interface (Streamlit)
-│   ├── app.py                   4-step landing page
-│   ├── ui_utils.py              Shared CSS injection and page header
+│   ├── app.py                   Landing page: progress + paths/log diagnostics
+│   ├── ui_utils.py              Shared helpers: session init, logging, paths/log panels, CSS
 │   ├── styles.css               Custom Streamlit styles
 │   ├── .streamlit/config.toml   Theme and server settings
 │   └── pages/
-│       ├── 1_study_setup.py     Slide folder configuration + JSON save/load
-│       ├── 2_roi_manager.py     Interactive ROI framing (Plotly + atlas hint)
+│       ├── 1_study_setup.py     Slide folders (incl. batch) + JSON save/load
+│       ├── 2_roi_manager.py     Interactive ROI framing (draw-box / sliders)
 │       ├── 3_sample_pca.py      Pseudobulk PCA + Nature-style figures
 │       └── 4_leiden_optimizer.py  Elbow plot, resolution sweep, scoring, clustree
 │
@@ -298,13 +317,13 @@ This usually means library-size normalisation was bypassed. The built-in workflo
 Lower `min_slides`, or switch `panel_mode` to `union`.
 
 **Leiden clusters track the slide instead of cell type**
-This is batch effect across slides. Enable **Harmony batch correction** on the Leiden Optimizer page (on by default for multi-slide runs) so clustering happens on the integrated embedding. See the [replicate-design caveat](#how-the-leiden-optimizer-works) before trusting the result.
+This is batch effect across slides. Enable **Harmony batch correction** on the Leiden Optimizer page (on by default for multi-slide runs) so clustering happens on the integrated embedding. Set a `batch` shared across conditions first — see [batch correction](#batch-correction) — so you don't remove the condition signal along with the batch effect.
 
 **`No module named 'scanpy'` on the Leiden Optimizer page**
 The optimizer needs the single-cell stack. Install it with `pip install -e ".[clustering]"` (or `pip install scanpy igraph leidenalg harmonypy`); the other three pages do not require it.
 
 **ROI selects 0 cells**
-The MBH sits in the ventral 50–80% of a coronal section (larger y, since y increases toward ventral). Re-frame using the dashed orange atlas-hint ellipse as a guide.
+The MBH sits in the ventral 50–80% of a coronal section (larger y, since y increases toward ventral). Re-frame by dragging a box there; the live cell count confirms when the region is populated.
 
 ---
 
