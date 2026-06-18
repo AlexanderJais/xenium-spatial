@@ -259,10 +259,14 @@ def _build_clustree(cluster_df: pd.DataFrame, best_res: float) -> None:
         ),
         link=dict(source=sources, target=targets, value=values, color=edge_colors),
     )])
+    # Height scales with the *widest* level (most clusters in any single
+    # resolution), since levels are laid out left-to-right. Using the total
+    # node count across all levels produced an absurdly tall, tangled figure.
+    max_nodes_per_level = max((cluster_df[c].nunique() for c in cols), default=1)
     fig.update_layout(
         title_text="Clustree: Cluster Lineage Across Resolutions",
         title_x=0.5, font_size=10,
-        height=max(450, 35 * len(set(node_labels))),
+        height=int(min(max(450, 40 * max_nodes_per_level), 1600)),
         template="plotly_white",
     )
     st.plotly_chart(fig, use_container_width=True)
