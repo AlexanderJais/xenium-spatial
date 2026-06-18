@@ -476,7 +476,7 @@ with chart_col:
         if out_mask.any():
             fig.add_trace(go.Scatter(
                 x=df_plot.loc[out_mask, "centroid_x"], y=df_plot.loc[out_mask, "centroid_y"],
-                mode="markers", marker=dict(size=1.5, color="#2A5298", opacity=0.12),
+                mode="markers", marker=dict(size=1.5, color="#B8C4D0", opacity=0.45),
                 name="Outside", hoverinfo="skip", showlegend=False,
             ))
         if inside_mask.any():
