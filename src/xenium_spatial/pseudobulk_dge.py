@@ -27,7 +27,8 @@ logger = logging.getLogger(__name__)
 
 
 def dge_for_celltype(adata, cell_type, group_key="cell_type", sample_key="replicate",
-                     condition_key="condition", min_avg_count: float = 1.0):
+                     condition_key="condition", min_cpm: float = 1.0,
+                     min_samples: int | None = None):
     """Pseudobulk DE for one ``cell_type``.
 
     Returns ``(DataFrame, error)``. On success ``error`` is None and the frame
@@ -62,9 +63,17 @@ def dge_for_celltype(adata, cell_type, group_key="cell_type", sample_key="replic
     cpm = counts / np.clip(lib, 1.0, None) * 1e6
     logcpm = np.log2(cpm + 1.0)
 
-    keep = counts.mean(axis=0) >= min_avg_count
+    # Expression filter on CPM, not raw counts: pseudobulk libraries vary by
+    # orders of magnitude (cells per replicate differ), so a raw-count mean is
+    # dominated by the largest-library sample and would admit genes detectable
+    # in only one sample. Require detection (CPM ≥ min_cpm) in enough samples
+    # that a single sample can't carry a gene.
+    n_samples = counts.shape[0]
+    if min_samples is None:
+        min_samples = max(2, n_samples // 2)
+    keep = (cpm >= min_cpm).sum(axis=0) >= min_samples
     if keep.sum() == 0:
-        return None, "no genes pass the expression filter"
+        return None, "no genes pass the expression filter (CPM detection)"
 
     a_idx = meta == conds[0]
     b_idx = meta == conds[1]
@@ -94,20 +103,27 @@ def dge_for_celltype(adata, cell_type, group_key="cell_type", sample_key="replic
     return df.sort_values("pval", na_position="last").reset_index(drop=True), None
 
 
-def dge_summary(adata, group_key="cell_type", sample_key="replicate",
-                condition_key="condition", padj_thresh: float = 0.1,
-                lfc_thresh: float = 1.0) -> pd.DataFrame:
-    """One row per cell type: cell count and the number of DE genes passing
-    ``padj < padj_thresh`` and ``|log2fc| > lfc_thresh`` (NaN-padj genes never
-    count). Cell types that can't be tested get a ``note`` instead."""
+def all_dge(adata, group_key="cell_type", sample_key="replicate",
+            condition_key="condition"):
+    """Run DGE for every cell type once (threshold-independent), so the caller
+    can cache this and count DE genes at any threshold cheaply.
+
+    Returns ``(results, notes)``: ``results`` is a tidy DataFrame of every tested
+    gene across all testable cell types (with a ``cell_type`` column), and
+    ``notes`` is one row per cell type with ``n_cells`` and a ``note`` (empty if
+    tested, otherwise the reason it was skipped).
+    """
     groups = adata.obs[group_key].astype(str)
-    rows = []
+    frames, notes = [], []
     for ct in sorted(groups.unique(), key=lambda x: (len(x), x)):
         n_cells = int((groups == ct).sum())
         df, err = dge_for_celltype(adata, ct, group_key, sample_key, condition_key)
         if err:
-            rows.append({group_key: ct, "n_cells": n_cells, "n_DE": 0, "note": err})
+            notes.append({group_key: ct, "n_cells": n_cells, "note": err})
             continue
-        sig = df[(df["padj"] < padj_thresh) & (df["log2fc"].abs() > lfc_thresh)]
-        rows.append({group_key: ct, "n_cells": n_cells, "n_DE": int(len(sig)), "note": ""})
-    return pd.DataFrame(rows)
+        df = df.copy()
+        df.insert(0, group_key, ct)
+        frames.append(df)
+        notes.append({group_key: ct, "n_cells": n_cells, "note": ""})
+    results = pd.concat(frames, ignore_index=True) if frames else pd.DataFrame()
+    return results, pd.DataFrame(notes)

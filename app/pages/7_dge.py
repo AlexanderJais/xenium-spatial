@@ -35,19 +35,19 @@ logger = logging.getLogger("xenium_app")
 
 @st.cache_data(show_spinner=False)
 def _dge(path, mtime, cell_type, group_key):
-    import anndata as ad
     from xenium_spatial.pseudobulk_dge import dge_for_celltype
-    adata = ad.read_h5ad(path)
+    adata = pipeline.load_clustered(path, mtime)
     df, err = dge_for_celltype(adata, cell_type, group_key=group_key)
     return df, err
 
 
 @st.cache_data(show_spinner=False)
-def _summary(path, mtime, group_key, padj_thresh, lfc_thresh):
-    import anndata as ad
-    from xenium_spatial.pseudobulk_dge import dge_summary
-    adata = ad.read_h5ad(path)
-    return dge_summary(adata, group_key=group_key, padj_thresh=padj_thresh, lfc_thresh=lfc_thresh)
+def _all_dge(path, mtime, group_key):
+    """Threshold-independent: run DGE once for every cell type. Cached on the
+    file + group only, so changing the DE-count thresholds is instant."""
+    from xenium_spatial.pseudobulk_dge import all_dge
+    adata = pipeline.load_clustered(path, mtime)
+    return all_dge(adata, group_key=group_key)
 
 
 page_header("🧪 Pseudobulk DGE", "Within-cell-type differential expression across conditions")
@@ -89,8 +89,19 @@ with t3:
 # ── Per-cell-type DE-count summary ──────────────────────────────────────────
 with st.expander("DE-gene counts per cell type", expanded=False):
     with st.spinner("Scanning all cell types …"):
-        summ = _summary(str(h5ad_path), mtime, group_key, float(padj_thresh), float(lfc_thresh))
-    st.dataframe(summ, use_container_width=True, hide_index=True)
+        results, notes = _all_dge(str(h5ad_path), mtime, group_key)
+    # Count DE genes at the *current* thresholds — cheap, so moving the sliders
+    # doesn't re-run the DE computation (which is cached on the file only).
+    if not results.empty:
+        sig = results[(results["padj"] < float(padj_thresh))
+                      & (results["log2fc"].abs() > float(lfc_thresh))]
+        counts = sig.groupby(group_key).size()
+        notes = notes.copy()
+        notes["n_DE"] = notes[group_key].map(counts).fillna(0).astype(int)
+    else:
+        notes = notes.assign(n_DE=0)
+    st.dataframe(notes[[group_key, "n_cells", "n_DE", "note"]],
+                 use_container_width=True, hide_index=True)
     st.caption(f"DE = padj < {padj_thresh:g} and |log2FC| > {lfc_thresh:g}. "
                "Cell types that can't be tested show a reason in `note`.")
 

@@ -42,16 +42,9 @@ def _valid_dir(p: str) -> bool:
     return bool(p) and (Path(p) / "cell_feature_matrix" / "matrix.mtx.gz").exists()
 
 
-@st.cache_resource(show_spinner=False)
-def _load_clustered(path: str, mtime: float):
-    import anndata as ad
-    return ad.read_h5ad(path)
-
-
 @st.cache_data(show_spinner=False)
 def _markers_table(path: str, mtime: float, n_genes: int) -> pd.DataFrame:
-    import anndata as ad
-    adata = ad.read_h5ad(path)
+    adata = pipeline.load_clustered(path, mtime)
     return rank_markers(adata, groupby="leiden", n_genes=n_genes)
 
 
@@ -139,7 +132,7 @@ if not h5ad_path.exists():
     st.stop()
 
 # ── Load the persisted clustering ───────────────────────────────────────────
-adata = _load_clustered(str(h5ad_path), h5ad_path.stat().st_mtime)
+adata = pipeline.load_clustered(str(h5ad_path), h5ad_path.stat().st_mtime)
 clusters = sorted(adata.obs["leiden"].astype(str).unique(), key=lambda x: int(x))
 gene_list = list(adata.var_names)
 

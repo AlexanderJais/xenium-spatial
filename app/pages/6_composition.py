@@ -59,6 +59,9 @@ else:
 if "condition" not in obs.columns or obs["condition"].nunique() < 2:
     st.warning("Need at least two conditions to compare composition.")
     st.stop()
+if "replicate" not in obs.columns:
+    st.error("The clustered object has no `replicate` column — rebuild it on 🔬 Clusters.")
+    st.stop()
 
 comp = composition_long(obs, group_key=group_key, sample_key="replicate",
                         condition_key="condition", batch_key="batch")

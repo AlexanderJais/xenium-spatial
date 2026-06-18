@@ -35,9 +35,8 @@ logger = logging.getLogger("xenium_app")
 
 @st.cache_data(show_spinner=False)
 def _enrichment(path, mtime, group_key, slide_subset, n_neighbors, n_perms):
-    import anndata as ad
     from xenium_spatial.spatial import neighborhood_enrichment
-    adata = ad.read_h5ad(path)
+    adata = pipeline.load_clustered(path, mtime)
     if slide_subset:
         adata = adata[adata.obs["slide_id"].astype(str).isin(set(slide_subset))].copy()
     return neighborhood_enrichment(adata, group_key=group_key, n_neighbors=n_neighbors,
@@ -74,6 +73,11 @@ slide_ids = sorted(obs["slide_id"].astype(str).unique()) if "slide_id" in obs el
 import plotly.express as px  # noqa: E402
 import plotly.graph_objects as go  # noqa: E402
 
+# Fixed colour per cell type so the same type keeps its colour across slides
+# (px otherwise assigns colours by order-of-appearance within each slide's data).
+_palette = (px.colors.qualitative.Dark24 + px.colors.qualitative.Light24)
+colour_map = {g: _palette[i % len(_palette)] for i, g in enumerate(groups)}
+
 # ── Spatial cell-type map ────────────────────────────────────────────────────
 st.subheader("Cell-type map")
 mc1, mc2 = st.columns([1, 1])
@@ -94,6 +98,7 @@ if highlight != "— all —":
                          category_orders={"shown": [highlight, "other"]})
 else:
     fig_map = px.scatter(dfm, x="x", y="y", color=group_key, render_mode="webgl",
+                         color_discrete_map=colour_map,
                          category_orders={group_key: groups})
 fig_map.update_traces(marker=dict(size=3, opacity=0.75))
 fig_map.update_layout(height=560, margin=dict(l=10, r=10, t=30, b=10),
@@ -121,7 +126,11 @@ with e3:
                            "to look for niche changes with age.")
 
 def _heat(z: pd.DataFrame, title: str):
-    vmax = float(np.nanmax(np.abs(z.values))) if z.size else 1.0
+    if z.empty or not np.isfinite(z.values).any():
+        st.warning(f"{title}: not enough cells per slide to compute enrichment "
+                   "(slides with ≤ k cells are skipped).")
+        return None
+    vmax = float(np.nanmax(np.abs(z.values))) or 1.0
     fig = go.Figure(go.Heatmap(z=z.values, x=list(z.columns), y=list(z.index),
                                colorscale="RdBu_r", zmid=0, zmin=-vmax, zmax=vmax,
                                colorbar=dict(title="z")))
@@ -135,20 +144,27 @@ if st.button("Compute neighbourhood enrichment", key="run_enrich"):
 if st.session_state.get("_enrich_ready"):
     try:
         with st.spinner("Building spatial graphs and permuting …"):
-            if split and "condition" in obs:
-                conds = sorted(obs["condition"].astype(str).unique())
+            conds = (sorted(obs["condition"].astype(str).unique())
+                     if "condition" in obs else [])
+            if split and len(conds) >= 2:
                 cols = st.columns(len(conds))
                 for col, c in zip(cols, conds):
                     c_slides = sorted(obs.loc[obs["condition"].astype(str) == c, "slide_id"]
                                       .astype(str).unique())
                     z = _enrichment(str(h5ad_path), mtime, group_key, tuple(c_slides),
                                     int(n_neighbors), int(n_perms))
-                    col.plotly_chart(_heat(z, c), use_container_width=True)
+                    fig = _heat(z, c)
+                    if fig is not None:
+                        col.plotly_chart(fig, use_container_width=True)
             else:
+                if split:
+                    st.info("Only one condition present — showing the combined enrichment.")
                 z = _enrichment(str(h5ad_path), mtime, group_key, (), int(n_neighbors), int(n_perms))
-                st.plotly_chart(_heat(z, "All slides"), use_container_width=True)
-                st.download_button("⬇️ Enrichment z-scores (CSV)", data=z.to_csv(),
-                                   file_name="neighbourhood_enrichment.csv", mime="text/csv")
+                fig = _heat(z, "All slides")
+                if fig is not None:
+                    st.plotly_chart(fig, use_container_width=True)
+                    st.download_button("⬇️ Enrichment z-scores (CSV)", data=z.to_csv(),
+                                       file_name="neighbourhood_enrichment.csv", mime="text/csv")
     except Exception as e:
         logger.exception("Neighbourhood enrichment failed")
         st.error(f"Enrichment failed: {e}")
