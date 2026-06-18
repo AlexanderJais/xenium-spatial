@@ -13,6 +13,14 @@ from pathlib import Path
 import streamlit as st
 
 
+@st.cache_resource(show_spinner=False)
+def load_clustered(path, mtime):
+    """Read a persisted clustered AnnData (cached on path + mtime, so it reloads
+    when the file is rebuilt or re-annotated)."""
+    import anndata as ad
+    return ad.read_h5ad(path)
+
+
 def roi_signature(slide_ids, roi_dir) -> tuple:
     """Per-slide ROI-file signature (slide_id, mtime). Changes when any saved
     ROI changes, so it can key the embedding cache and invalidate it on edit."""
