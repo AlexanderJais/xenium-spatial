@@ -306,8 +306,8 @@ def plot_pca_elbow(
     ``adata`` must already carry a PCA (``adata.uns['pca']['variance']``), as
     produced by :func:`preprocess_for_clustering`.
     """
-    import matplotlib as mpl
     import matplotlib.pyplot as plt
+    from .figure_style import apply_nature_style
 
     if "pca" not in adata.uns or "variance" not in adata.uns["pca"]:
         raise KeyError(
@@ -324,16 +324,11 @@ def plot_pca_elbow(
     pcs = np.arange(1, len(pct) + 1)
     n_rec = int(elbow["n_pcs"])
 
-    mpl.rcParams.update({
-        "font.size": 7, "axes.titlesize": 8, "axes.labelsize": 7,
-        "xtick.labelsize": 6, "ytick.labelsize": 6, "legend.fontsize": 6,
-        "axes.linewidth": 0.5, "axes.spines.top": False, "axes.spines.right": False,
-        "savefig.bbox": "tight", "pdf.fonttype": 42, "ps.fonttype": 42,
-    })
+    apply_nature_style()
 
-    fig, ax = plt.subplots(figsize=(3.6, 2.8))
-    ax.plot(pcs, pct, "-o", color="#1B4F8A", ms=3, lw=0.9, zorder=3)
-    ax.axvline(n_rec, color="#D55E00", ls="--", lw=0.9, zorder=2,
+    fig, ax = plt.subplots(figsize=(3.8, 3.0))
+    ax.plot(pcs, pct, "-o", color="#1B4F8A", ms=3.5, lw=1.0, zorder=3)
+    ax.axvline(n_rec, color="#D55E00", ls="--", lw=1.0, zorder=2,
                label=f"recommended: {n_rec} PCs")
     ax.set_xlabel("Principal component")
     ax.set_ylabel("Std. dev. explained (%)")
