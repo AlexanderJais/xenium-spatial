@@ -93,7 +93,7 @@ The app has four steps:
 The landing page also carries a progress summary (slides configured, ROIs saved, Sample PCA status, Leiden resolution, PCA components) and two diagnostics in expanders:
 
 - **🗂 Paths & environment** — shows where the app is running from and where each configured path (base panel CSV, ROI cache, output dir) points, flags any that resolve to a *different* checkout of the project (a common cause of stale ROIs when several copies coexist), and offers a one-click reset of the repo-relative paths to the running checkout.
-- **🪵 Debug log** — the app and the `xenium_spatial` package write to a rotating log at `logs/xenium_app.log`. The panel shows the file location, a verbosity selector (DEBUG…ERROR), a tail preview, and download/clear buttons — attach this log when reporting an issue.
+- **🪵 Debug log** — the app and the `xenium_spatial` package write to a rotating log at `logs/xenium_app.log`. The panel has a verbosity selector (DEBUG…ERROR) and produces a single **copy-paste block** combining the environment + key package versions with the recent log lines (length selectable) — copy it (the code-block copy icon) and paste it back when reporting an issue, so the report carries both the activity and the validation context. Full-log download / clear are also there.
 
 ---
 

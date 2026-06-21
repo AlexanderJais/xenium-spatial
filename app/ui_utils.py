@@ -72,7 +72,9 @@ def init_logging(level: int = logging.INFO) -> Path:
             datefmt="%Y-%m-%d %H:%M:%S"))
         root.addHandler(handler)
         logging.captureWarnings(True)  # route warnings.warn(...) into the log
-        logging.getLogger("xenium_app").info("── logging initialised → %s", LOG_FILE)
+        log = logging.getLogger("xenium_app")
+        log.info("── logging initialised → %s", LOG_FILE)
+        log.info("environment | %s", environment_summary(one_line=True))
     root.setLevel(level)
     handler.setLevel(level)
     for name in _NOISY_LOGGERS:
@@ -80,38 +82,88 @@ def init_logging(level: int = logging.INFO) -> Path:
     return LOG_FILE
 
 
+_VALIDATION_PKGS = ["streamlit", "scanpy", "anndata", "numpy", "pandas", "scipy",
+                    "scikit-learn", "plotly", "harmonypy", "leidenalg", "igraph", "pyarrow"]
+
+
+def environment_summary(one_line: bool = False) -> str:
+    """App paths, Python, and key package versions — context for debugging and
+    validation. Best-effort: a package that isn't installed shows ``—``."""
+    import platform
+    import sys
+    rows = [
+        f"app: {_ROOT}",
+        f"output_dir: {st.session_state.get('output_dir', '?')}",
+        f"roi_cache: {st.session_state.get('roi_cache_dir', '?')}",
+        f"python: {platform.python_version()} ({sys.platform})",
+    ]
+    try:
+        from importlib.metadata import version, PackageNotFoundError
+        vers = []
+        for p in _VALIDATION_PKGS:
+            try:
+                vers.append(f"{p}={version(p)}")
+            except PackageNotFoundError:
+                vers.append(f"{p}=—")
+        rows.append("packages: " + ", ".join(vers))
+    except Exception:  # pragma: no cover - diagnostics only
+        pass
+    return " | ".join(rows) if one_line else "\n".join(rows)
+
+
 def log_panel() -> None:
-    """Render a compact debug-log panel: file location, level selector,
-    download / clear buttons and a tail preview. Drop on any page."""
+    """Render the debug-log panel. Produces a single **copy-pasteable** block
+    (environment + version info + recent log lines) so the user can paste it
+    straight back for debugging and validation, plus level / length controls and
+    download / clear buttons."""
     log_file = get_log_file()
     with st.expander("🪵 Debug log"):
         st.caption(f"Log file: `{log_file}`")
+        c1, c2 = st.columns(2)
         levels = ["DEBUG", "INFO", "WARNING", "ERROR"]
         cur = st.session_state.get("log_level", "INFO")
-        new_level = st.selectbox(
-            "Verbosity", levels, index=levels.index(cur) if cur in levels else 1,
-            help="DEBUG captures the most detail. Applies to messages logged from now on.")
-        if new_level != cur:
-            st.session_state["log_level"] = new_level
-            init_logging(logging.getLevelName(new_level))
+        with c1:
+            new_level = st.selectbox(
+                "Verbosity", levels, index=levels.index(cur) if cur in levels else 1,
+                help="DEBUG captures the most detail. Applies to messages logged from now on.")
+            if new_level != cur:
+                st.session_state["log_level"] = new_level
+                init_logging(logging.getLevelName(new_level))
+        with c2:
+            how_much = st.selectbox("Lines to include", ["Last 100", "Last 300",
+                                    "Last 1000", "Whole file"], index=1,
+                                    help="How much of the log to put in the copy-paste block.")
 
+        env = environment_summary()
+        log_lines, n_bytes, updated = [], 0, None
         if log_file.exists() and log_file.stat().st_size:
-            data = log_file.read_bytes()
-            st.caption(f"{len(data):,} bytes · updated "
-                       f"{datetime.fromtimestamp(log_file.stat().st_mtime):%Y-%m-%d %H:%M:%S}")
-            c1, c2 = st.columns(2)
-            with c1:
-                st.download_button("⬇️ Download log", data=data, file_name="xenium_app.log",
+            n_bytes = log_file.stat().st_size
+            updated = datetime.fromtimestamp(log_file.stat().st_mtime)
+            log_lines = log_file.read_text(encoding="utf-8", errors="replace").splitlines()
+
+        n = {"Last 100": 100, "Last 300": 300, "Last 1000": 1000}.get(how_much)
+        shown = log_lines if n is None else log_lines[-n:]
+        block = ("===== XENIUM APP — ENVIRONMENT =====\n" + env
+                 + f"\n\n===== LOG ({'whole file' if n is None else f'last {len(shown)} lines'}"
+                 + (f", updated {updated:%Y-%m-%d %H:%M:%S}" if updated else "") + ") =====\n"
+                 + ("\n".join(shown) if shown else "(log is empty — run a step to populate it)"))
+
+        st.caption("📋 **Copy the block below** (hover → copy icon, top-right) and paste it "
+                   "back for debugging / validation:")
+        st.code(block, language="text")
+
+        if n_bytes:
+            d1, d2 = st.columns(2)
+            with d1:
+                st.download_button("⬇️ Download full log",
+                                   data=log_file.read_bytes(), file_name="xenium_app.log",
                                    mime="text/plain", use_container_width=True)
-            with c2:
+            with d2:
                 if st.button("🗑 Clear log", use_container_width=True):
                     log_file.write_text("")
                     logging.getLogger("xenium_app").info("log cleared from UI")
                     st.rerun()
-            tail = data.decode("utf-8", "replace").splitlines()[-40:]
-            st.code("\n".join(tail) or "(empty)", language="log")
-        else:
-            st.info("Log is empty — run a step (Sample PCA / Leiden) to populate it.")
+            st.caption(f"{n_bytes:,} bytes total.")
 
 
 def init_session_state() -> None:
