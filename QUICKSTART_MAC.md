@@ -29,9 +29,9 @@ This installs Miniforge3 (ARM64 conda) if needed, creates a Python 3.11 environm
 | Core stack | numpy, pandas, scipy, scikit-learn, matplotlib |
 | Data | anndata, pyarrow (`cells.parquet`) |
 | Web interface | streamlit, plotly |
-| Leiden Optimizer (step 4) | scanpy, igraph, leidenalg, harmonypy |
+| Cell-level steps (4–9) | scanpy, igraph, leidenalg, harmonypy |
 
-The Leiden Optimizer stack is installed last and is non-fatal: if it fails, the Sample-PCA workflow still works and you can add it later with `conda install -n xenium_sample_pca -c conda-forge scanpy python-igraph leidenalg harmonypy`.
+The cell-level (single-cell) stack is installed last and is non-fatal: if it fails, the Sample-PCA workflow (steps 1–3) still works and you can add it later with `conda install -n xenium_sample_pca -c conda-forge scanpy python-igraph leidenalg harmonypy`.
 
 Alternatively, in any environment: `pip install -r requirements.txt`.
 
@@ -83,11 +83,10 @@ Click **Save configuration to JSON** to store all paths so you never re-enter th
 
 Define the mediobasal hypothalamus (MBH) boundary on each slide.
 
-1. Select a slide from the dropdown.
-2. Use the four sliders to frame the MBH bounding rectangle (left/right x, top/bottom y).
-3. The scatter and cell count update live as you adjust.
-4. The dashed orange ellipse is an anatomical atlas hint — the MBH sits in the ventral 50–80% of a coronal section (larger y = ventral).
-5. Click **Save ROI** when the rectangle covers the MBH.
+1. Select a slide from the dropdown (or step through with the ◀/▶ buttons).
+2. **Drag a box** on the tissue to frame the MBH bounding rectangle, or fine-tune with the four edge sliders (left/right x, top/bottom y).
+3. The scatter, the live cell count, and the box dimensions update as you adjust. The MBH sits in the ventral 50–80% of a coronal section (larger y = ventral).
+4. Click **Save ROI** when the rectangle covers the MBH (turn on *auto-advance* to jump to the next unsaved slide).
 
 **Precise coordinates:** use the *Paste coordinates* panel — one `x, y` pair per line in micrometres:
 ```
@@ -139,7 +138,7 @@ Once the Sample PCA looks sensible, go to **🔎 Leiden Optimizer** to choose a 
 Set the options, then click **Run resolution sweep**:
 - **Apply MBH ROIs / Base panel only** — same meaning as on the Sample PCA page.
 - **PCA components / KNN neighbours** — the embedding and graph the sweep runs on (defaults 50 / 15 are fine for the targeted panel).
-- **Harmony batch correction** — on by default for multi-slide runs. Integrates slides (batch = `slide_id`) so clusters reflect cell type, not which slide a cell came from. *In a 4 + 4 replicate design this can also dampen real AGED-vs-ADULT differences — the page warns you, and you should check the recommended clusters still separate the conditions.*
+- **Harmony batch correction** — on by default for multi-slide runs. Integrates slides on each slide's **batch** label (set in Study Setup) so clusters reflect cell type, not which slide a cell came from. *In a 4 + 4 replicate design, leaving the batch at the default `slide_id` corrects across conditions and can dampen real AGED-vs-ADULT differences. Set a `batch` shared across conditions (e.g. the sequencing run / date) so each batch contains both conditions — the page warns when batches are confounded and confirms when they're crossed.*
 - **Min / Max / Step resolution** — the grid to sweep (default 0.1 → 2.0 by 0.1).
 - **Max cells for metric computation** — silhouette is O(n²); 50k is a good default, and the page warns above that.
 
@@ -156,6 +155,22 @@ Written to `<output_dir>/leiden_optimizer/`:
 
 ---
 
+## 7. Steps 5–9 — cell-level quantification (optional)
+
+After you **apply** a resolution, the remaining pages quantify the cells. Start on **🔬 Clusters** and click *Build clustering* — it computes the UMAP + Leiden labels and writes `<output_dir>/clustering/clustered.h5ad`, which every later page reads.
+
+| Page | What you get |
+|------|--------------|
+| **🔬 Clusters** | UMAP (colour by cluster / condition / batch / gene), per-cluster **marker genes**, and a cluster → **cell-type** annotation form. |
+| **📊 Composition** | Per-replicate cell-type **proportions**, AGED vs ADULT (dot plot + effect-size table). |
+| **🧪 Pseudobulk DGE** | **Differential expression** within a cell type across conditions (volcano + table). |
+| **🗺️ Spatial maps & niches** | Cell-type **maps** per slide and a neighbourhood-**enrichment** heatmap. |
+| **🎯 Gene focus** | Everything for one **gene** (default Galanin): per-cluster expression + DE, spatial map, and an AGED−ADULT spatial grid. |
+
+All condition comparisons are per biological replicate; at n ≈ 2 they're for **discovery** (effect sizes), not significance. These pages need the `clustering` extra installed.
+
+---
+
 ## Troubleshooting
 
 **ROI sliders not responding**
@@ -165,7 +180,7 @@ Refresh the page (Cmd+R). If it persists, use the *Paste coordinates* panel.
 The path must be the Xenium run directory itself (containing `cell_feature_matrix/` and `cells.parquet`), not a parent folder.
 
 **ROI selects 0 cells**
-The MBH is ventral (larger y). Use the dashed orange atlas-hint ellipse as a guide and re-frame.
+The MBH is ventral (larger y). Drag the box lower on the section; the live cell count confirms when the region is populated.
 
 **PCA separates samples by cell number, not biology**
 The built-in workflow always CPM-normalises before PCA. If you call the functions directly, run `normalize_pseudobulk` before `run_sample_pca`.
