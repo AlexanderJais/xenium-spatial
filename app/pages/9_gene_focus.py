@@ -60,6 +60,9 @@ mtime = h5ad_path.stat().st_mtime
 adata = pipeline.load_clustered(str(h5ad_path), mtime)
 obs = adata.obs
 genes = list(adata.var_names)
+if not genes:
+    st.error("The clustered object has no genes — rebuild it on 🔬 Clusters.")
+    st.stop()
 
 # Gene + grouping controls.
 gc1, gc2 = st.columns([2, 2])
@@ -80,6 +83,8 @@ import plotly.graph_objects as go  # noqa: E402
 by_cell = gene_by_cluster(adata, gene, group_key=group_key)
 order = sorted(by_cell["group"].unique(), key=lambda x: (len(x), x))
 has_cond = "condition" in by_cell.columns and by_cell["condition"].nunique() >= 2
+# Condition comparisons (DE + spatial grid) also need replicate labels.
+can_dge = has_cond and "replicate" in obs.columns
 conds = sorted(by_cell["condition"].unique()) if "condition" in by_cell.columns else []
 cond_colour = {c: _WONG[i % len(_WONG)] for i, c in enumerate(conds)}
 
@@ -115,8 +120,8 @@ st.plotly_chart(figd, use_container_width=True)
 # ── B. Per-cluster differential expression (condition) ───────────────────────
 st.divider()
 st.subheader(f"{gene} — differential expression per cluster")
-if not has_cond:
-    st.info("Need ≥2 conditions for differential expression.")
+if not can_dge:
+    st.info("Need ≥2 conditions and a `replicate` column for differential expression.")
 else:
     summary, per_rep = _dge(str(h5ad_path), mtime, gene, group_key)
     direction = next((d for d in summary["direction"] if d), "")
@@ -185,6 +190,9 @@ else:
 # ── D. Spatial age-effect grid ───────────────────────────────────────────────
 st.divider()
 st.subheader(f"{gene} — spatial age-effect grid")
+if not can_dge:
+    st.info("Need ≥2 conditions and a `replicate` column for the spatial age-effect grid.")
+    st.stop()
 st.caption("Each slide's coordinates are normalised to its ROI bounding box, tiled into a grid; "
            "the difference grid shows where the gene differs between conditions. Sparse bins "
            "(few cells) are masked. Discovery only — no per-bin test at n≈2.")
@@ -205,11 +213,6 @@ if st.session_state.get("_grid_ready"):
         st.error(f"Grid failed: {e}")
         g = None
     if g:
-        def _mask(grid, cnt):
-            out = grid.copy()
-            out[(cnt is None) | (np.nan_to_num(cnt) < min_cells)] = np.nan
-            return out
-
         if g["diff"] is not None:
             both = np.minimum(np.nan_to_num(g["counts"][g["conds"][0]]),
                               np.nan_to_num(g["counts"][g["conds"][1]]))
@@ -225,9 +228,11 @@ if st.session_state.get("_grid_ready"):
             st.plotly_chart(figg, use_container_width=True)
             if not np.isfinite(diff).any():
                 st.warning("Every bin is below the min-cell threshold — lower the grid size or threshold.")
-        # Per-condition grids side by side.
+        # Per-condition grids side by side, on a shared colour scale.
         cols = st.columns(len(g["conds"]))
-        gmax = np.nanmax([np.nanmax(v) for v in g["grids"].values()] or [1.0])
+        finite_max = [float(np.nanmax(v)) for v in g["grids"].values()
+                      if np.isfinite(v).any()]
+        gmax = max(finite_max) if finite_max else 1.0
         for col, c in zip(cols, g["conds"]):
             z = g["grids"][c].copy()
             z[np.nan_to_num(g["counts"][c]) < min_cells] = np.nan

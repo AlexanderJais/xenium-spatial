@@ -88,7 +88,11 @@ def gene_dge_across_clusters(adata, gene, group_key="cell_type", sample_key="rep
             rec["log2fc"] = float(np.mean(per[1]) - np.mean(per[0]))
             with np.errstate(all="ignore"):
                 try:
-                    rec["pval"] = float(stats.ttest_ind(per[1], per[0], equal_var=False).pvalue)
+                    if np.ptp(np.concatenate(per)) == 0:
+                        rec["pval"] = 1.0   # identical everywhere -> nothing to test
+                    else:
+                        rec["pval"] = float(
+                            stats.ttest_ind(per[1], per[0], equal_var=False).pvalue)
                 except Exception:
                     rec["pval"] = np.nan
         rows.append(rec)
