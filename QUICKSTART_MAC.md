@@ -1,4 +1,4 @@
-# Xenium Sample PCA — macOS Quick Start (Apple Silicon)
+# Xenium Spatial Pipeline — macOS Quick Start (Apple Silicon)
 
 > Tested on MacBook Pro M1/M2/M3/M4, macOS Ventura/Sonoma/Sequoia.
 > For full documentation see [README.md](README.md).

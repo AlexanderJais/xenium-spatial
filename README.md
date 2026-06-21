@@ -1,4 +1,4 @@
-# Xenium Sample PCA
+# Xenium Spatial Pipeline
 
 **An end-to-end exploratory pipeline for a 10x Genomics Xenium spatial study — from sample-level QC through cell-level clustering to cell-type, spatial, and single-gene quantification (default: AGED vs ADULT mouse mediobasal hypothalamus).**
 

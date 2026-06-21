@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # =============================================================================
 # install_mac.sh
-# macOS Apple Silicon (M1/M2/M3/M4) installer for Xenium Sample PCA
+# macOS Apple Silicon (M1/M2/M3/M4) installer for Xenium Spatial Pipeline
 # =============================================================================
 # Run once from the project root:
 #   chmod +x install_mac.sh && ./install_mac.sh
@@ -33,7 +33,7 @@ fail() { echo -e "${RED}[ FAIL ]${RESET} $*"; echo ""; echo "Installation stoppe
 sep()  { echo -e "${BOLD}────────────────────────────────────────────────${RESET}"; }
 
 sep
-echo -e "${BOLD}  Xenium Sample PCA — macOS Installer${RESET}"
+echo -e "${BOLD}  Xenium Spatial Pipeline — macOS Installer${RESET}"
 echo -e "  Environment : ${ENV_NAME}  |  Python ${PYTHON_VERSION}"
 sep
 echo ""
