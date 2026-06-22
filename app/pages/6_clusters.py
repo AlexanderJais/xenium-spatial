@@ -133,10 +133,10 @@ with st.expander("⚙️ Embedding settings", expanded=not h5ad_path.exists()):
     c1, c2, c3 = st.columns(3)
     with c1:
         use_roi = st.toggle("Apply MBH ROIs", value=(n_roi > 0), key="cl_use_roi")
-        base_panel_only = st.toggle("Base panel only", value=False, key="cl_base_only",
-                                    help="Off keeps the per-slide add-on genes. When the "
-                                         "custom panel is shared across all slides (no "
-                                         "comparability problem), keeping it is recommended.")
+        base_panel_only = st.toggle("Restrict to base panel", value=False, key="cl_base_only",
+                                    help="By default clustering runs on the full **consensus "
+                                         "panel** (base + shared add-on genes). Enable only to "
+                                         "narrow to the 247 base genes.")
     with c2:
         use_harmony = st.toggle("Harmony batch correction", value=(len(valid_slides) > 1),
                                 key="cl_harmony",

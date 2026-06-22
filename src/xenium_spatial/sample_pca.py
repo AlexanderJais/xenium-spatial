@@ -547,7 +547,7 @@ def sample_level_pca_analysis(
     batch_key: str = "batch",
     n_top_genes: int = 0,
     scale_genes: bool = False,
-    base_panel_only: bool = True,
+    base_panel_only: bool = False,
     fmt: str = "pdf",
     dpi: int = 300,
     random_state: int = 42,
@@ -562,11 +562,12 @@ def sample_level_pca_analysis(
     Parameters
     ----------
     base_panel_only:
-        If True (default), restrict the analysis to the shared Xenium base
-        panel genes (``var['panel_type'] == 'base'``) before pseudobulking,
-        dropping every add-on / custom gene.  This keeps the PCA comparable
-        across slides that carry different add-on panels.  Set False to use
-        whichever gene set the loader produced (base + custom).
+        If False (default), run on whichever gene set the loader produced —
+        normally the **consensus panel** (base + add-on genes shared by every
+        sample), which is already cross-comparable with no zero-filling. Set
+        True to restrict to the base panel genes
+        (``var['panel_type'] == 'base'``) before pseudobulking, dropping the
+        add-on genes.
 
     Returns the pseudobulk AnnData (with PCA in ``.obsm['X_pca']``) so
     the caller can do further inspection.

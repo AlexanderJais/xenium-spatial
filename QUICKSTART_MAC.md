@@ -106,7 +106,7 @@ Go to **📊 Sample PCA** and click **Run sample PCA**. The app loads the slides
 
 Options:
 - **Samples to include** — pick which samples go into the PCA (minimum 2); the rest are ignored for that run.
-- **Base panel only** — on by default; restricts the PCA to the shared base panel so samples with different add-on panels stay comparable. Untick to include add-on genes.
+- **Restrict to base panel** — off by default; the PCA runs on the **consensus panel** (base + add-on genes shared by every sample), which is already cross-comparable with no zero-filling. Tick only to narrow to the 247 base genes.
 - **Apply MBH ROIs** — on by default once ROIs exist; turn off to use whole sections.
 - **Top variable genes** — 0 uses all genes (recommended for the targeted panel).
 - **Z-score genes** — off by default (`log1p` already stabilises variance).
@@ -136,7 +136,7 @@ Written to `<output_dir>/sample_pca/`:
 Once the Sample PCA looks sensible, go to **🔎 Leiden Optimizer** to choose a cell-level clustering resolution by metrics instead of by eye. It reuses the same slides and ROIs, builds a single-cell PCA + KNN graph, then sweeps Leiden resolutions and scores each on silhouette, Calinski-Harabasz, Davies-Bouldin, spatial coherence, and modularity.
 
 Set the options, then click **Run resolution sweep**:
-- **Apply MBH ROIs / Base panel only** — same meaning as on the Sample PCA page.
+- **Apply MBH ROIs / Restrict to base panel** — same meaning as on the Sample PCA page (both default to the consensus panel + saved ROIs).
 - **PCA components / KNN neighbours** — the embedding and graph the sweep runs on (defaults 50 / 15 are fine for the targeted panel).
 - **Harmony batch correction** — on by default for multi-slide runs. Integrates slides on each slide's **batch** label (set in Study Setup) so clusters reflect cell type, not which slide a cell came from. *In a 4 + 4 replicate design, leaving the batch at the default `slide_id` corrects across conditions and can dampen real AGED-vs-ADULT differences. Set a `batch` shared across conditions (e.g. the sequencing run / date) so each batch contains both conditions — the page warns when batches are confounded and confirms when they're crossed.*
 - **Min / Max / Step resolution** — the grid to sweep (default 0.1 → 2.0 by 0.1).

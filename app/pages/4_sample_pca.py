@@ -125,10 +125,12 @@ with c1:
     if use_roi and n_roi < len(selected_slides):
         st.caption(f"⚠️ Only {n_roi}/{len(valid_slides)} ROIs saved — slides without one use the whole section.")
 with c2:
-    base_panel_only = st.toggle("Base panel only", value=True,
-                                help="Restrict the PCA to the shared Xenium base panel "
-                                     "(247 genes), dropping per-slide add-on genes so all "
-                                     "samples are compared on the same gene set.")
+    base_panel_only = st.toggle("Restrict to base panel", value=False,
+                                help="By default the PCA runs on the full **consensus panel** "
+                                     "(base + add-on genes shared by every sample — set on the "
+                                     "🧬 Consensus Panel page), so all samples are compared on "
+                                     "the same gene set with no zero-filling. Enable only to "
+                                     "narrow to the 247 base genes.")
 with c3:
     n_top_genes = st.number_input("Top variable genes (0 = all)", min_value=0, max_value=5000,
                                   value=0, step=50,

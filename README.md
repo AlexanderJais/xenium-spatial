@@ -107,15 +107,15 @@ The landing page also carries a progress summary (slides configured, ROIs saved,
 Once paths and ROIs are set (the runner reads the same `roi_cache/`):
 
 ```bash
-python scripts/run_sample_pca.py                 # load all configured slides, base panel only, run PCA
+python scripts/run_sample_pca.py                 # load all configured slides, consensus panel, run PCA
 python scripts/run_sample_pca.py --samples AGED_1 ADULT_1   # run on a subset (>=2 samples)
-python scripts/run_sample_pca.py --all-genes     # include per-slide add-on genes, not just the base panel
+python scripts/run_sample_pca.py --base-panel-only          # narrow to the 247 base genes only
 python scripts/run_sample_pca.py --no-roi        # use whole sections (skip ROI filtering)
 python scripts/run_sample_pca.py --n-top-genes 200 --scale-genes   # restrict to top-variable genes, z-scored
 python scripts/run_sample_pca.py --fmt png       # PNG instead of PDF figures
 ```
 
-Slide paths are configured at the top of `scripts/run_sample_pca.py` (the `SLIDES` list), mirroring the web app's Study Setup. By default the PCA is restricted to the shared base panel and uses every configured slide; `--samples` selects a subset (minimum 2) and `--all-genes` opts back into the add-on genes. The web app's Sample PCA page exposes the same controls (a sample multiselect and a "Base panel only" toggle).
+Slide paths are configured at the top of `scripts/run_sample_pca.py` (the `SLIDES` list), mirroring the web app's Study Setup. By default the PCA runs on the **consensus panel** (base + add-on genes shared by every sample) and uses every configured slide; `--samples` selects a subset (minimum 2) and `--base-panel-only` narrows to the 247 base genes. The web app's Sample PCA page exposes the same controls (a sample multiselect and a "Restrict to base panel" toggle, off by default).
 
 ---
 
@@ -123,10 +123,10 @@ Slide paths are configured at the top of `scripts/run_sample_pca.py` (the `SLIDE
 
 The analysis lives in `src/xenium_spatial/sample_pca.py` and runs in these steps:
 
-0. **Restrict to the base panel** (default) — drop per-slide add-on genes so every sample is compared on the shared `Xenium_mBrain_v1_1` panel (~247 genes). This matters because samples can carry different add-on panels; pass `--all-genes` (or untick "Base panel only") to keep them.
+0. **Use the consensus panel** (default) — run on the gene set shared by every sample (base + add-on genes present in all slides; built on the 🧬 Consensus Panel page). Because the consensus is a strict intersection, every gene is comparable across samples with no zero-filling. Pass `--base-panel-only` (or tick "Restrict to base panel") to narrow to the ~247 base genes.
 1. **Pseudobulk** (`pseudobulk_samples`) — sum raw counts across all cells of each slide, giving one expression profile per biological replicate (one point per sample).
 2. **Normalise** (`normalize_pseudobulk`) — library-size normalise each sample to counts-per-million, then `log1p`. Without this, PCA would just rank samples by cell number / sequencing depth.
-3. **PCA** (`run_sample_pca`) — PCA across samples via scikit-learn. Uses all (base panel) genes by default (recommended for targeted Xenium panels); optionally restricts to the top-variable genes and/or z-scores genes.
+3. **PCA** (`run_sample_pca`) — PCA across samples via scikit-learn. Uses all consensus-panel genes by default (recommended for targeted Xenium panels); optionally restricts to the top-variable genes and/or z-scores genes.
 4. **Plot** — a PC1/PC2 scatter coloured by group with sample labels, a sample-by-sample correlation heatmap ordered by hierarchical clustering, and a scree plot. (With only two samples PCA yields a single component, so the scatter spreads the samples along PC1.)
 
 Pseudobulk PCA is the standard QC / sanity-check for replicated studies (cf. DESeq2's `plotPCA`): each point is one biological replicate, so it is robust at n=4 per group, and it makes outlier slides immediately visible.

@@ -12,7 +12,7 @@ ADULT), and are there outlier slides we should be aware of?
 Usage
 -----
     # Default: load all configured slides, apply saved ROIs, run sample PCA
-    # on the shared base panel only
+    # on the consensus panel (base + add-on genes shared by every sample)
     python run_sample_pca.py
 
     # Run on just two samples
@@ -21,8 +21,8 @@ Usage
     # Ignore ROIs and use whole sections
     python run_sample_pca.py --no-roi
 
-    # Include the add-on (custom) genes as well as the base panel
-    python run_sample_pca.py --all-genes
+    # Narrow to the 247 base genes only
+    python run_sample_pca.py --base-panel-only
 
     # Restrict PCA to the 200 most variable genes and z-score them
     python run_sample_pca.py --n-top-genes 200 --scale-genes
@@ -82,7 +82,7 @@ def main(
     min_slides: int = 2,
     n_top_genes: int = 0,
     scale_genes: bool = False,
-    base_panel_only: bool = True,
+    base_panel_only: bool = False,
     samples: Optional[list[str]] = None,
     fmt: str = "pdf",
 ) -> None:
@@ -165,14 +165,15 @@ def main(
 if __name__ == "__main__":
     p = argparse.ArgumentParser(description="Sample-level PCA for the AGED vs ADULT study.")
     p.add_argument("--no-roi", action="store_true", help="Use whole sections (skip ROI filtering).")
-    p.add_argument("--panel-mode", default="partial_union",
-                   choices=["intersection", "partial_union", "union"])
+    p.add_argument("--panel-mode", default="consensus",
+                   choices=["consensus", "intersection", "partial_union", "union"])
     p.add_argument("--min-slides", type=int, default=2,
                    help="Min slides a custom gene must appear in (partial_union).")
     p.add_argument("--samples", nargs="+", metavar="SLIDE_ID",
                    help="Slide IDs to include (>=2). Default: all configured slides.")
-    p.add_argument("--all-genes", action="store_true",
-                   help="Include add-on (custom) genes too. Default: base panel only.")
+    p.add_argument("--base-panel-only", action="store_true",
+                   help="Restrict to the 247 base genes. Default: full consensus "
+                        "panel (base + shared add-on genes).")
     p.add_argument("--n-top-genes", type=int, default=0,
                    help="Restrict PCA to N most variable genes (0 = all genes).")
     p.add_argument("--scale-genes", action="store_true",
@@ -186,7 +187,7 @@ if __name__ == "__main__":
         min_slides=args.min_slides,
         n_top_genes=args.n_top_genes,
         scale_genes=args.scale_genes,
-        base_panel_only=not args.all_genes,
+        base_panel_only=args.base_panel_only,
         samples=args.samples,
         fmt=args.fmt,
     )
