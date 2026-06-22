@@ -239,7 +239,7 @@ The cell-level quantification persists to `<output_dir>/clustering/`:
 | `clustered.h5ad` | The final clustering — UMAP, Leiden labels, `cell_type` annotation, condition / replicate / batch, spatial coords; the shared input to steps 6–9 |
 | `annotations.json` | The cluster → cell-type label mapping |
 
-Each quantification page also offers its own CSV downloads (cluster marker genes, composition stats and per-replicate proportions, per-cell-type DGE tables, neighbourhood-enrichment z-scores, and per-cluster gene fold-changes).
+Each quantification page also offers its own CSV downloads (cluster marker genes, composition stats and per-replicate proportions, per-cell-type DGE tables, neighbourhood-enrichment z-scores, and per-cluster gene fold-changes) **and a publication-ready PDF for every on-screen chart** — the interactive Plotly view is for exploration, while a one-click *“(PDF, publication)”* button beside it exports the matching **Nature-style, Type-42-editable** vector figure (shared style with the Sample-PCA / elbow figures). Covered figures: the UMAP and top-marker heatmap (Clusters); the stacked-composition and proportion-by-condition plots (Composition); the volcano (DGE); the cell-type map and neighbourhood-enrichment heatmap (Spatial); and the expression violins, per-cluster fold-change bar, spatial expression map and age-effect grid (Gene focus).
 
 A `panel_validation.csv` (per-slide base/custom gene breakdown) is written to the **output directory** alongside these results. The app's diagnostic log goes to `logs/xenium_app.log` (see the **🪵 Debug log** panel).
 
@@ -290,7 +290,8 @@ xenium-spatial-analysis/
 │       ├── pseudobulk_dge.py    Within-cell-type pseudobulk differential expression
 │       ├── spatial.py           Cell-type maps + neighbourhood-enrichment
 │       ├── gene_focus.py        Single-gene quantification (expression, DE, spatial grid)
-│       └── figure_style.py      Shared Nature-grade matplotlib style
+│       ├── figure_style.py      Shared Nature-grade matplotlib style (rcParams)
+│       └── figure_export.py     Nature-style PDF renderers for the quantification charts
 │
 ├── app/                         Web interface (Streamlit)
 │   ├── app.py                   Landing page: progress + paths/log diagnostics

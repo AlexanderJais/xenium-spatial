@@ -142,6 +142,15 @@ fig.update_layout(height=520, margin=dict(l=10, r=10, t=30, b=10),
                   xaxis_title="log2 fold-change", yaxis_title="-log10 p",
                   legend=dict(orientation="h", y=1.02))
 st.plotly_chart(fig, use_container_width=True)
+try:
+    from xenium_spatial import figure_export as fx
+    _volcano_pdf = fx.volcano(df, lfc_thresh=float(lfc_thresh), padj_thresh=float(padj_thresh),
+                              direction=direction, title=f"{cell_type} — AGED vs ADULT")
+    st.download_button("⬇️ Volcano (PDF, publication)", data=_volcano_pdf,
+                       file_name=f"volcano_{cell_type}.pdf", mime="application/pdf")
+except Exception as e:  # noqa: BLE001
+    logger.exception("Volcano PDF export failed")
+    st.caption(f"PDF export unavailable: {e}")
 
 show = df.copy()
 for c in show.columns:

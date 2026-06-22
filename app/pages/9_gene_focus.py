@@ -110,6 +110,22 @@ else:
 figv.update_layout(height=380, margin=dict(l=10, r=10, t=20, b=10),
                    xaxis_title=group_key, yaxis_title=f"{gene} (log-norm)")
 st.plotly_chart(figv, use_container_width=True)
+from xenium_spatial import figure_export as fx  # noqa: E402
+try:
+    if split and has_cond:
+        _vio_pdf = fx.violin_by_group(
+            vdf, group_col="group", value_col="expr", order=order,
+            xlabel=group_key, ylabel=f"{gene} (log-norm)", title=f"{gene} by cluster",
+            split_col="condition", split_levels=conds, split_colour=cond_colour)
+    else:
+        _vio_pdf = fx.violin_by_group(
+            vdf, group_col="group", value_col="expr", order=order,
+            xlabel=group_key, ylabel=f"{gene} (log-norm)", title=f"{gene} by cluster")
+    st.download_button("⬇️ Expression violins (PDF, publication)", data=_vio_pdf,
+                       file_name=f"{gene}_violins.pdf", mime="application/pdf")
+except Exception as e:  # noqa: BLE001
+    logger.exception("Gene violin PDF export failed")
+    st.caption(f"PDF export unavailable: {e}")
 
 figd = px.bar(x=det.index, y=det.values, labels={"x": group_key, "y": "% detected"})
 figd.update_traces(marker_color="#1B4F8A")
@@ -151,6 +167,16 @@ else:
                            xaxis_title=f"log2FC ({direction})", yaxis_title=group_key,
                            title=f"{gene} fold-change per cluster")
         st.plotly_chart(figf, use_container_width=True)
+        try:
+            _fc_pdf = fx.hbar(bar["log2fc"].to_numpy(), bar["group"].tolist(),
+                              xlabel=f"log2FC ({direction})", ylabel=group_key,
+                              title=f"{gene} fold-change per cluster")
+            st.download_button("⬇️ Fold-change per cluster (PDF, publication)", data=_fc_pdf,
+                               file_name=f"{gene}_log2fc_per_cluster.pdf",
+                               mime="application/pdf")
+        except Exception as e:  # noqa: BLE001
+            logger.exception("Gene log2FC PDF export failed")
+            st.caption(f"PDF export unavailable: {e}")
 
     show = summary.copy()
     for col in show.columns:
@@ -184,6 +210,17 @@ if "spatial" in adata.obsm:
                        plot_bgcolor="#111111")
     st.plotly_chart(figs, use_container_width=True)
     st.caption(f"{int(m.sum()):,} cells on **{slide}** coloured by {gene} log-norm.")
+    try:
+        _smap_pdf = fx.scatter_continuous(
+            sdf["x"].to_numpy(), sdf["y"].to_numpy(), sdf[gene].to_numpy(),
+            xlabel="x (µm)", ylabel="y (µm)", title=f"{slide} — {gene}",
+            cbar_label=f"{gene} (log-norm)", point_size=1.5,
+            equal_aspect=True, invert_y=True, dark_bg=True)
+        st.download_button("⬇️ Spatial expression (PDF, publication)", data=_smap_pdf,
+                           file_name=f"{gene}_spatial_{slide}.pdf", mime="application/pdf")
+    except Exception as e:  # noqa: BLE001
+        logger.exception("Gene spatial PDF export failed")
+        st.caption(f"PDF export unavailable: {e}")
 else:
     st.info("No spatial coordinates in the clustered object.")
 
@@ -228,6 +265,19 @@ if st.session_state.get("_grid_ready"):
             st.plotly_chart(figg, use_container_width=True)
             if not np.isfinite(diff).any():
                 st.warning("Every bin is below the min-cell threshold — lower the grid size or threshold.")
+            else:
+                try:
+                    _grid_pdf = fx.heatmap(
+                        diff, x_labels=[], y_labels=[], cmap="RdBu_r", center=0.0,
+                        vmin=-vmax, vmax=vmax, cbar_label="Δ (log-norm)",
+                        title=f"{gene} difference ({g['direction']})",
+                        xlabel="medial ↔ lateral", ylabel="dorsal → ventral")
+                    st.download_button("⬇️ Age-effect grid (PDF, publication)", data=_grid_pdf,
+                                       file_name=f"{gene}_ageeffect_grid.pdf",
+                                       mime="application/pdf")
+                except Exception as e:  # noqa: BLE001
+                    logger.exception("Age-effect grid PDF export failed")
+                    st.caption(f"PDF export unavailable: {e}")
         # Per-condition grids side by side, on a shared colour scale.
         cols = st.columns(len(g["conds"]))
         finite_max = [float(np.nanmax(v)) for v in g["grids"].values()
