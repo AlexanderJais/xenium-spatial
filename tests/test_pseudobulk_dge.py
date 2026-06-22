@@ -11,7 +11,15 @@ def _adata():
     anndata = pytest.importorskip("anndata")
     rng = np.random.default_rng(0)
     # 4 samples x 6 cells, all one cell type "A". Genes: DE_up (high in AGED),
-    # FLAT (same), NOISE.
+    # FLAT (same), NOISE, and a dominant stable HOUSE-keeping gene.
+    #
+    # HOUSE keeps the per-sample library size ~equal across conditions. Without
+    # it, the single strongly-DE gene would be a large fraction of the AGED
+    # library, and CPM normalisation would turn that into a *consistent* shift
+    # of the flat genes (low variance -> small p) — a compositional artifact
+    # that, in a 3-gene toy, can rank a flat gene above the true DE gene. Real
+    # ~297-gene panels never have one gene dominate, so the housekeeping gene
+    # makes this toy behave like a real library.
     samples = [("S1", "AGED"), ("S2", "AGED"), ("S3", "ADULT"), ("S4", "ADULT")]
     obs_rows, counts = [], []
     for sid, cond in samples:
@@ -19,12 +27,13 @@ def _adata():
             de = rng.poisson(80 if cond == "AGED" else 8)
             flat = rng.poisson(40)
             noise = rng.poisson(5)
-            counts.append([de, flat, noise])
+            house = rng.poisson(2000)
+            counts.append([de, flat, noise, house])
             obs_rows.append({"replicate": sid, "condition": cond, "cell_type": "A"})
     import pandas as pd
     X = np.array(counts, dtype="float32")
     a = anndata.AnnData(X=X, obs=pd.DataFrame(obs_rows),
-                        var=pd.DataFrame(index=["DE_up", "FLAT", "NOISE"]))
+                        var=pd.DataFrame(index=["DE_up", "FLAT", "NOISE", "HOUSE"]))
     a.layers["counts"] = a.X.copy()
     return a
 

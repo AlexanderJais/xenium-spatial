@@ -7,9 +7,15 @@ import pytest
 
 def _registry(tmp_path):
     pd = pytest.importorskip("pandas")
-    # Minimal base panel CSV (PanelRegistry reads the first column as gene names).
+    # Base panel CSV with the columns PanelRegistry requires
+    # (Genes, Ensembl_ID, Num_Probesets, Annotation).
     csv = tmp_path / "base.csv"
-    pd.DataFrame({"Genes": ["A", "B", "C"]}).to_csv(csv, index=False)
+    genes = ["A", "B", "C"]
+    pd.DataFrame({"Genes": genes,
+                  "Ensembl_ID": [f"ENS{g}" for g in genes],
+                  "Num_Probesets": [1] * len(genes),
+                  "Codewords": [1] * len(genes),
+                  "Annotation": ["test"] * len(genes)}).to_csv(csv, index=False)
     from xenium_spatial.panel_registry import PanelRegistry
     return PanelRegistry(csv)
 
