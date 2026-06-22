@@ -1,5 +1,5 @@
 """
-pages/4_leiden_optimizer.py
+pages/5_leiden_optimizer.py
 Leiden Resolution Optimizer — automated resolution sweep with silhouette +
 modularity scoring, run directly on the study's slides.
 
@@ -312,10 +312,11 @@ with p1:
     if use_roi and n_roi < len(selected_slides):
         st.caption(f"⚠️ Only {n_roi}/{len(valid_slides)} ROIs saved — slides without one use the whole section.")
 with p2:
-    base_panel_only = st.toggle("Base panel only", value=True,
-                                help="Cluster on the shared Xenium base panel (247 genes), "
-                                     "dropping per-slide add-on genes so the embedding is "
-                                     "comparable across slides.")
+    base_panel_only = st.toggle("Restrict to base panel", value=False,
+                                help="By default the sweep runs on the full **consensus panel** "
+                                     "(base + shared add-on genes) — the same gene set the "
+                                     "🔬 Clusters build uses, so the optimizer and the final "
+                                     "clustering agree. Enable only to narrow to the 247 base genes.")
 with p3:
     # Clamp a restored/config-loaded value into the widget's range before it is
     # instantiated; seeding the key with an out-of-range value would raise.

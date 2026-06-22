@@ -204,9 +204,11 @@ class MultiSlideLoader:
     roi_selector:
         Optional ROISelector. If provided, saved ROIs are applied per slide.
     panel_mode:
+        'consensus'     : strict intersection — base + custom genes present in
+                          ALL slides (the default; never zero-fills). Recommended.
         'intersection'  : keep only base panel genes present in all slides.
         'partial_union' : base genes + custom genes in >= min_slides slides
-                          (the default; zero-fills the gaps). Recommended.
+                          (zero-fills the gaps).
         'union'         : include all genes, zero-fill missing custom genes.
     min_slides:
         Minimum slides a custom gene must appear in to be retained under
@@ -223,7 +225,7 @@ class MultiSlideLoader:
         manifest: SlideManifest,
         panel_registry: PanelRegistry,
         roi_selector: Optional[ROISelector] = None,
-        panel_mode: Literal["intersection", "partial_union", "union"] = "partial_union",
+        panel_mode: Literal["consensus", "intersection", "partial_union", "union"] = "consensus",
         min_slides: int = 2,
         apply_roi: bool = True,
         output_dir: Optional[Path] = None,

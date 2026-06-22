@@ -23,6 +23,7 @@ Runs entirely on your machine. No data leaves your computer.
 - [Cell-level quantification](#cell-level-quantification)
 - [Batch correction](#batch-correction)
 - [Panel structure](#panel-structure)
+- [Consensus panel](#consensus-panel)
 - [Outputs](#outputs)
 - [Configuration file format](#configuration-file-format)
 - [Project structure](#project-structure)
@@ -84,14 +85,15 @@ The app is a numbered, sequential workflow — each page is also reachable direc
 | Step | Page | Purpose |
 |------|------|---------|
 | 1 | **📁 Study Setup** | Enter the path to each Xenium output directory — add or remove slides as needed (any number, any condition labels; the default is 4 AGED + 4 ADULT). A green tick confirms each is valid and shows its gene/cell counts. An optional **Batch** column records a technical batch (e.g. sequencing run / capture date) for Harmony — see [batch correction](#batch-correction). Save/load the full config as JSON. |
-| 2 | **🗺️ ROI Manager** | Interactive Plotly scatter per slide. **Drag a box** on the tissue to frame the MBH bounding rectangle (or fine-tune with the four edge sliders); the cell count and the box dimensions update live. ◀/▶ buttons and an auto-advance toggle step through slides; an "All slides" table flags cell-count outliers. Manual coordinate entry is available as a fallback. ROIs are saved to `roi_cache/` and reused automatically. |
-| 3 | **📊 Sample PCA** | Loads the slides, applies the saved ROIs, pseudobulks each sample, and runs PCA across them. Shows the Nature-style PCA scatter (coloured by group; if a **batch** is set, batch is the marker *shape* so batch-vs-condition confounding is visible), a hierarchically-clustered sample correlation heatmap, and a scree plot — inline, with PDF/CSV downloads. |
-| 4 | **🔎 Leiden Optimizer** | Loads and ROI-filters the same slides, builds a single-cell PCA + KNN graph (with optional **Harmony** batch correction on each slide's **batch** label, on by default for multi-slide runs), then sweeps a grid of Leiden resolutions. The **📐 How many PCs? — elbow plot** tool (under *Preprocessing*) estimates how many principal components to keep before you sweep. Each resolution is scored on silhouette, Calinski-Harabasz, Davies-Bouldin, spatial coherence, and modularity; a weighted combined score recommends the best. A clustree shows how clusters split/merge, and one click applies the chosen resolution to the pipeline settings (persisted to the output dir and the study-config JSON). Needs `scanpy`, `igraph`, `leidenalg`, and `harmonypy`. |
-| 5 | **🔬 Clusters** | Builds the final clustering at the applied resolution (UMAP + Leiden on the same Harmony embedding), shown as an interactive UMAP coloured by cluster / condition / batch / gene. Computes per-cluster **marker genes** (Wilcoxon) and provides a cluster→**cell-type annotation** form. The clustered object is persisted to `<output_dir>/clustering/clustered.h5ad` (labels to `annotations.json`) for the downstream quantification steps. Needs the `clustering` extra. |
-| 6 | **📊 Composition** | Reads the clustered object and compares **per-replicate** cell-type proportions across conditions: a stacked per-sample overview, a per-cell-type dot plot (one dot per replicate, bar = condition mean), and an effect-size table (log2 fold-change + an *exploratory* t-test). Proportions are computed per biological replicate — never per cell — and the UI is explicit that at n≈2 this is discovery, not significance. |
-| 7 | **🧪 Pseudobulk DGE** | Within a chosen cell type, pseudobulks the cells per replicate (reusing the Sample-PCA aggregator), then tests each gene across the replicate-level CPM values — a **volcano** + table + per-cell-type DE-count summary. Replicate-level (not per-cell) to avoid pseudoreplication; at n≈2 it's effect-size ranking, with a count model (DESeq2/edgeR) recommended for publication. |
-| 8 | **🗺️ Spatial maps & niches** | Uses the Xenium cell coordinates the other steps ignore: per-slide **cell-type maps** (optionally highlighting one type) and a **neighbourhood-enrichment** heatmap (permutation z-score for which cell types are spatial neighbours more/less than chance, shuffled within slide). The enrichment can be split by condition to surface aging niche changes. |
-| 9 | **🎯 Gene focus** | Quantitative analysis of one gene (default **Galanin / Gal**): expression + detection rate per cluster, **per-cluster differential expression** across conditions (pseudobulk per replicate, log2FC forest + table), a per-slide spatial expression map, and a **spatial age-effect grid** (AGED−ADULT difference per MBH sub-region, on slide-normalised coordinates). Replicate-level throughout; discovery only at n≈2. |
+| 2 | **🧬 Consensus Panel** | Builds the **consensus gene panel** — the strict intersection of every sample's panel (base genes in all + add-on genes in all) — from each slide's `features.tsv.gz` metadata. Shows the shared add-on genes, any partially-shared add-ons that are **excluded** (with a sample × gene presence matrix), and per-sample contributions, then locks the consensus in as the gene set the whole pipeline runs on. Because it's a strict intersection, **no gene is ever zero-filled**, which removes the main way a differing add-on panel could fake a DE hit. See [consensus panel](#consensus-panel). |
+| 3 | **🗺️ ROI Manager** | Interactive Plotly scatter per slide. If a section is mounted slightly rotated, **straighten it first** with the *Rotate (°)* slider (live preview; ✨ *Auto-suggest* seeds the angle from the tissue's principal axis) so the brain sits upright before you frame the box. Then **drag a box** on the (straightened) tissue to frame the MBH bounding rectangle (or fine-tune with the four edge sliders); the cell count and box dimensions update live. ◀/▶ buttons and an auto-advance toggle step through slides; an "All slides" table flags cell-count outliers. Manual coordinate entry is available as a fallback. ROIs — and the per-slide rotation — are saved to `roi_cache/` and reused automatically. |
+| 4 | **📊 Sample PCA** | Loads the slides, applies the saved ROIs, pseudobulks each sample, and runs PCA across them. Shows the Nature-style PCA scatter (coloured by group; if a **batch** is set, batch is the marker *shape* so batch-vs-condition confounding is visible), a hierarchically-clustered sample correlation heatmap, and a scree plot — inline, with PDF/CSV downloads. |
+| 5 | **🔎 Leiden Optimizer** | Loads and ROI-filters the same slides, builds a single-cell PCA + KNN graph (with optional **Harmony** batch correction on each slide's **batch** label, on by default for multi-slide runs), then sweeps a grid of Leiden resolutions. The **📐 How many PCs? — elbow plot** tool (under *Preprocessing*) estimates how many principal components to keep before you sweep. Each resolution is scored on silhouette, Calinski-Harabasz, Davies-Bouldin, spatial coherence, and modularity; a weighted combined score recommends the best. A clustree shows how clusters split/merge, and one click applies the chosen resolution to the pipeline settings (persisted to the output dir and the study-config JSON). Needs `scanpy`, `igraph`, `leidenalg`, and `harmonypy`. |
+| 6 | **🔬 Clusters** | Builds the final clustering at the applied resolution (UMAP + Leiden on the same Harmony embedding), shown as an interactive UMAP coloured by cluster / condition / batch / gene. Computes per-cluster **marker genes** (Wilcoxon) and provides a cluster→**cell-type annotation** form. The clustered object is persisted to `<output_dir>/clustering/clustered.h5ad` (labels to `annotations.json`) for the downstream quantification steps. Needs the `clustering` extra. |
+| 7 | **📊 Composition** | Reads the clustered object and compares **per-replicate** cell-type proportions across conditions: a stacked per-sample overview, a per-cell-type dot plot (one dot per replicate, bar = condition mean), and an effect-size table (log2 fold-change + an *exploratory* t-test). Proportions are computed per biological replicate — never per cell — and the UI is explicit that at n≈2 this is discovery, not significance. |
+| 8 | **🧪 Pseudobulk DGE** | Within a chosen cell type, pseudobulks the cells per replicate (reusing the Sample-PCA aggregator), then tests each gene across the replicate-level CPM values — a **volcano** + table + per-cell-type DE-count summary. Replicate-level (not per-cell) to avoid pseudoreplication; at n≈2 it's effect-size ranking, with a count model (DESeq2/edgeR) recommended for publication. |
+| 9 | **🗺️ Spatial maps & niches** | Uses the Xenium cell coordinates the other steps ignore: per-slide **cell-type maps** (optionally highlighting one type) and a **neighbourhood-enrichment** heatmap (permutation z-score for which cell types are spatial neighbours more/less than chance, shuffled within slide). The enrichment can be split by condition to surface aging niche changes. |
+| 10 | **🎯 Gene focus** | Quantitative analysis of one gene (default **Galanin / Gal**): expression + detection rate per cluster, **per-cluster differential expression** across conditions (pseudobulk per replicate, log2FC forest + table), a per-slide spatial expression map, and a **spatial age-effect grid** (AGED−ADULT difference per MBH sub-region, on slide-normalised coordinates). Replicate-level throughout; discovery only at n≈2. |
 
 The landing page also carries a progress summary (slides configured, ROIs saved, Sample PCA status, Leiden resolution, PCA components) and two diagnostics in expanders:
 
@@ -105,15 +107,15 @@ The landing page also carries a progress summary (slides configured, ROIs saved,
 Once paths and ROIs are set (the runner reads the same `roi_cache/`):
 
 ```bash
-python scripts/run_sample_pca.py                 # load all configured slides, base panel only, run PCA
+python scripts/run_sample_pca.py                 # load all configured slides, consensus panel, run PCA
 python scripts/run_sample_pca.py --samples AGED_1 ADULT_1   # run on a subset (>=2 samples)
-python scripts/run_sample_pca.py --all-genes     # include per-slide add-on genes, not just the base panel
+python scripts/run_sample_pca.py --base-panel-only          # narrow to the 247 base genes only
 python scripts/run_sample_pca.py --no-roi        # use whole sections (skip ROI filtering)
 python scripts/run_sample_pca.py --n-top-genes 200 --scale-genes   # restrict to top-variable genes, z-scored
 python scripts/run_sample_pca.py --fmt png       # PNG instead of PDF figures
 ```
 
-Slide paths are configured at the top of `scripts/run_sample_pca.py` (the `SLIDES` list), mirroring the web app's Study Setup. By default the PCA is restricted to the shared base panel and uses every configured slide; `--samples` selects a subset (minimum 2) and `--all-genes` opts back into the add-on genes. The web app's Sample PCA page exposes the same controls (a sample multiselect and a "Base panel only" toggle).
+Slide paths are configured at the top of `scripts/run_sample_pca.py` (the `SLIDES` list), mirroring the web app's Study Setup. By default the PCA runs on the **consensus panel** (base + add-on genes shared by every sample) and uses every configured slide; `--samples` selects a subset (minimum 2) and `--base-panel-only` narrows to the 247 base genes. The web app's Sample PCA page exposes the same controls (a sample multiselect and a "Restrict to base panel" toggle, off by default).
 
 ---
 
@@ -121,10 +123,10 @@ Slide paths are configured at the top of `scripts/run_sample_pca.py` (the `SLIDE
 
 The analysis lives in `src/xenium_spatial/sample_pca.py` and runs in these steps:
 
-0. **Restrict to the base panel** (default) — drop per-slide add-on genes so every sample is compared on the shared `Xenium_mBrain_v1_1` panel (~247 genes). This matters because samples can carry different add-on panels; pass `--all-genes` (or untick "Base panel only") to keep them.
+0. **Use the consensus panel** (default) — run on the gene set shared by every sample (base + add-on genes present in all slides; built on the 🧬 Consensus Panel page). Because the consensus is a strict intersection, every gene is comparable across samples with no zero-filling. Pass `--base-panel-only` (or tick "Restrict to base panel") to narrow to the ~247 base genes.
 1. **Pseudobulk** (`pseudobulk_samples`) — sum raw counts across all cells of each slide, giving one expression profile per biological replicate (one point per sample).
 2. **Normalise** (`normalize_pseudobulk`) — library-size normalise each sample to counts-per-million, then `log1p`. Without this, PCA would just rank samples by cell number / sequencing depth.
-3. **PCA** (`run_sample_pca`) — PCA across samples via scikit-learn. Uses all (base panel) genes by default (recommended for targeted Xenium panels); optionally restricts to the top-variable genes and/or z-scores genes.
+3. **PCA** (`run_sample_pca`) — PCA across samples via scikit-learn. Uses all consensus-panel genes by default (recommended for targeted Xenium panels); optionally restricts to the top-variable genes and/or z-scores genes.
 4. **Plot** — a PC1/PC2 scatter coloured by group with sample labels, a sample-by-sample correlation heatmap ordered by hierarchical clustering, and a scree plot. (With only two samples PCA yields a single component, so the scatter spreads the samples along PC1.)
 
 Pseudobulk PCA is the standard QC / sanity-check for replicated studies (cf. DESeq2's `plotPCA`): each point is one biological replicate, so it is robust at n=4 per group, and it makes outlier slides immediately visible.
@@ -170,6 +172,12 @@ Once you **apply** a resolution in the Leiden Optimizer, the cell-level steps bu
 
 **Statistical stance.** Every condition comparison (composition, DGE, gene focus) is computed at the **biological-replicate** level — proportions or pseudobulk summed per sample, never per cell — to avoid pseudoreplication (treating thousands of cells as independent observations, which manufactures significance). With the usual 2-vs-2 design the per-feature tests are underpowered, so the UI is explicit that these are **effect-size / discovery** analyses: rank by effect size, read the per-replicate dots, and validate hits in an independent cohort (and with a count model such as DESeq2/edgeR for DGE) before reporting them.
 
+### Section straightening
+
+If a section is mounted at an angle, the **ROI Manager** lets you record a per-slide rotation (slider + ✨ principal-axis *Auto-suggest*) that brings the brain to a canonical upright orientation. The rotation is saved inside the ROI file (`roi_cache/<slide>_roi.json`, as a `transform` block; absent = identity, so existing ROIs are unchanged) and applied to `obsm['spatial']` at load time by `roi_selector` — using the *same* `transform.py` maths the Manager previews, so the framed box and the filtered cells can never disagree. The raw coordinates are kept in `obsm['spatial_raw']`.
+
+Because rotation is a **rigid** transform, it does not change clustering, marker genes, composition, pseudobulk DGE, or neighbourhood enrichment (all rotation-invariant). What it fixes is (1) the axis-aligned **bounding-box ROI** — an upright section lets a tight box capture just the MBH instead of dragging in oblique tissue, which in turn cleans up *every* downstream analysis via the cell set that enters it; (2) the **orientation of the spatial maps**; and (3) the **spatial age-effect grid**, whose dorsal→ventral (y) and medial↔lateral (x) axes only line up across slides once each section is straightened. After changing a rotation, re-save the ROI and re-run Sample PCA / rebuild the clustering (the ROI-file change invalidates the load caches automatically).
+
 ---
 
 ## Batch correction
@@ -200,11 +208,25 @@ Every Xenium run produces one count matrix containing all genes for that slide:
 
 | Mode | Custom genes kept | Recommended when |
 |------|-------------------|------------------|
+| **`consensus`** | Present in **all** slides (and base in all) | **Default — strict intersection, never zero-fills** |
 | `intersection` | None (base only) | You only need the 247 base panel genes |
-| **`partial_union`** | Present in ≥ `min_slides` slides | **Default — best for this study** |
+| `partial_union` | Present in ≥ `min_slides` slides | More custom genes, accepts zero-filling |
 | `union` | All custom genes | Exploratory analysis only |
 
-In `partial_union` mode, slides missing a retained custom gene receive a zero-filled column. Because a gene can be zero-filled in one slide yet measured in another, the concatenated AnnData records this per slide in `adata.varm['zero_filled_by_slide']` (genes × slides), with study-level summaries in `adata.var['zero_filled_any']` and `adata.var['n_slides_zero_filled']`.
+In `partial_union` / `union` modes, slides missing a retained custom gene receive a zero-filled column. Because a gene can be zero-filled in one slide yet measured in another, the concatenated AnnData records this per slide in `adata.varm['zero_filled_by_slide']` (genes × slides), with study-level summaries in `adata.var['zero_filled_any']` and `adata.var['n_slides_zero_filled']`.
+
+### Consensus panel
+
+The default `consensus` mode is the **strict intersection** of every configured sample's panel — base genes present in all samples, plus add-on genes present in all samples. Because every consensus gene is genuinely measured in every sample, **nothing is ever zero-filled**, which structurally removes the main way a differing add-on panel could fake a differential-expression hit (a gene simply absent from a panel otherwise reads as "not expressed" there).
+
+The **🧬 Consensus Panel** page (step 2) builds this from each slide's `features.tsv.gz` and shows exactly what is kept and what is excluded:
+
+- the **shared add-on genes** that enter the consensus;
+- any **partially-shared add-on genes** that are dropped, with a sample × gene presence matrix so you can see which samples carried each one;
+- any **base gene** missing from a sample (excluded under strict intersection — normally none);
+- per-sample contributions, and a `consensus_panel.json` / `.csv` export.
+
+Clicking **Use this consensus panel** records `consensus_panel.json` in the output directory and keeps `consensus` active for Sample PCA, clustering and all downstream quantification. The `partial_union` / `union` / `intersection` modes remain available via the study-config JSON for users who deliberately want the wider (zero-filled) gene set.
 
 ---
 
@@ -282,7 +304,8 @@ xenium-spatial-analysis/
 │       ├── xenium_loader.py     Load a Xenium run directory into AnnData
 │       ├── multislide_loader.py Multi-slide manifest, validation, concat
 │       ├── panel_registry.py    Gene classification and panel harmonisation
-│       ├── roi_selector.py      ROI persistence + apply (reads roi_cache/)
+│       ├── roi_selector.py      ROI persistence + apply (reads roi_cache/, straightens coords)
+│       ├── transform.py         Per-slide section-straightening rotation (shared maths)
 │       ├── sample_pca.py        Pseudobulk, normalise, PCA, and figures
 │       ├── leiden_optimizer.py  Cell-level embedding, elbow PC selection, Leiden sweep
 │       ├── cell_clustering.py   UMAP + Leiden labels, marker genes, annotation
@@ -301,14 +324,15 @@ xenium-spatial-analysis/
 │   ├── .streamlit/config.toml   Theme and server settings
 │   └── pages/
 │       ├── 1_study_setup.py     Slide folders (incl. batch) + JSON save/load
-│       ├── 2_roi_manager.py     Interactive ROI framing (draw-box / sliders)
-│       ├── 3_sample_pca.py      Pseudobulk PCA + Nature-style figures
-│       ├── 4_leiden_optimizer.py  Elbow plot, resolution sweep, scoring, clustree
-│       ├── 5_clusters.py        UMAP + marker genes + cell-type annotation
-│       ├── 6_composition.py     Per-replicate cell-type composition shifts
-│       ├── 7_dge.py             Within-cell-type pseudobulk DGE + volcano
-│       ├── 8_spatial.py         Cell-type maps + neighbourhood niches
-│       └── 9_gene_focus.py      Single-gene quantification (default Gal)
+│       ├── 2_consensus_panel.py Consensus gene set (strict intersection) the pipeline runs on
+│       ├── 3_roi_manager.py     Interactive ROI framing (draw-box / sliders / straighten)
+│       ├── 4_sample_pca.py      Pseudobulk PCA + Nature-style figures
+│       ├── 5_leiden_optimizer.py  Elbow plot, resolution sweep, scoring, clustree
+│       ├── 6_clusters.py        UMAP + marker genes + cell-type annotation
+│       ├── 7_composition.py     Per-replicate cell-type composition shifts
+│       ├── 8_dge.py             Within-cell-type pseudobulk DGE + volcano
+│       ├── 9_spatial.py         Cell-type maps + neighbourhood niches
+│       └── 10_gene_focus.py     Single-gene quantification (default Gal)
 │
 ├── scripts/
 │   └── run_sample_pca.py        CLI entry point for the sample PCA

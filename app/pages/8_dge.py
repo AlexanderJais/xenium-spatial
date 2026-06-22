@@ -1,5 +1,5 @@
 """
-pages/7_dge.py
+pages/8_dge.py
 Pseudobulk differential expression — within a cell type, AGED vs ADULT.
 
 Reads the clustered AnnData, pseudobulks the chosen cell type per replicate, and
@@ -48,6 +48,19 @@ def _all_dge(path, mtime, group_key):
     from xenium_spatial.pseudobulk_dge import all_dge
     adata = pipeline.load_clustered(path, mtime)
     return all_dge(adata, group_key=group_key)
+
+
+@st.cache_data(show_spinner=False)
+def _volcano_pdf(path, mtime, cell_type, group_key, padj, lfc):
+    """Publication volcano PDF — cached so nudging the thresholds doesn't
+    re-render matplotlib on every rerun."""
+    from xenium_spatial import figure_export as fx
+    d, e = _dge(path, mtime, cell_type, group_key)
+    if e or d is None or d.empty:
+        return None
+    direction = d["direction"].iloc[0] if "direction" in d.columns and len(d) else ""
+    return fx.volcano(d, lfc_thresh=float(lfc), padj_thresh=float(padj),
+                      direction=direction, title=f"{cell_type} — AGED vs ADULT")
 
 
 page_header("🧪 Pseudobulk DGE", "Within-cell-type differential expression across conditions")
@@ -143,11 +156,11 @@ fig.update_layout(height=520, margin=dict(l=10, r=10, t=30, b=10),
                   legend=dict(orientation="h", y=1.02))
 st.plotly_chart(fig, use_container_width=True)
 try:
-    from xenium_spatial import figure_export as fx
-    _volcano_pdf = fx.volcano(df, lfc_thresh=float(lfc_thresh), padj_thresh=float(padj_thresh),
-                              direction=direction, title=f"{cell_type} — AGED vs ADULT")
-    st.download_button("⬇️ Volcano (PDF, publication)", data=_volcano_pdf,
-                       file_name=f"volcano_{cell_type}.pdf", mime="application/pdf")
+    _vpdf = _volcano_pdf(str(h5ad_path), mtime, cell_type, group_key,
+                         float(padj_thresh), float(lfc_thresh))
+    if _vpdf:
+        st.download_button("⬇️ Volcano (PDF, publication)", data=_vpdf,
+                           file_name=f"volcano_{cell_type}.pdf", mime="application/pdf")
 except Exception as e:  # noqa: BLE001
     logger.exception("Volcano PDF export failed")
     st.caption(f"PDF export unavailable: {e}")

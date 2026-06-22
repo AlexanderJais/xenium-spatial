@@ -1,5 +1,5 @@
 """
-pages/9_gene_focus.py
+pages/10_gene_focus.py
 Gene focus — quantitative analysis of one gene (default Galanin / Gal).
 
 Reads the clustered AnnData and reports, for the selected gene: expression and
@@ -46,6 +46,77 @@ def _grid(path, mtime, gene, n_bins):
     from xenium_spatial.gene_focus import gene_spatial_grid
     adata = pipeline.load_clustered(path, mtime)
     return gene_spatial_grid(adata, gene, n_bins=n_bins)
+
+
+# ── Publication PDF builders (cached so they don't re-render every rerun) ─────
+@st.cache_data(show_spinner=False)
+def _violin_pdf(path, mtime, gene, group_key, split):
+    from xenium_spatial import figure_export as fx
+    from xenium_spatial.gene_focus import gene_by_cluster
+    bc = gene_by_cluster(pipeline.load_clustered(path, mtime), gene, group_key=group_key)
+    order = sorted(bc["group"].unique(), key=lambda x: (len(x), x))
+    vdf = bc if len(bc) <= 40_000 else bc.sample(40_000, random_state=42)
+    has_cond = "condition" in bc.columns and bc["condition"].nunique() >= 2
+    conds = sorted(bc["condition"].unique()) if "condition" in bc.columns else []
+    cc = {c: fx.WONG[i % len(fx.WONG)] for i, c in enumerate(conds)}
+    if split and has_cond:
+        return fx.violin_by_group(vdf, group_col="group", value_col="expr", order=order,
+                                  xlabel=group_key, ylabel=f"{gene} (log-norm)",
+                                  title=f"{gene} by cluster", split_col="condition",
+                                  split_levels=conds, split_colour=cc)
+    return fx.violin_by_group(vdf, group_col="group", value_col="expr", order=order,
+                              xlabel=group_key, ylabel=f"{gene} (log-norm)",
+                              title=f"{gene} by cluster")
+
+
+@st.cache_data(show_spinner=False)
+def _fc_pdf(path, mtime, gene, group_key):
+    from xenium_spatial import figure_export as fx
+    summary, _ = _dge(path, mtime, gene, group_key)
+    bar = summary.dropna(subset=["log2fc"]).copy()
+    if not len(bar):
+        return None
+    bar = bar.sort_values("log2fc")
+    direction = next((d for d in summary["direction"] if d), "")
+    return fx.hbar(bar["log2fc"].to_numpy(), bar["group"].tolist(),
+                   xlabel=f"log2FC ({direction})", ylabel=group_key,
+                   title=f"{gene} fold-change per cluster")
+
+
+@st.cache_data(show_spinner=False)
+def _genespatial_pdf(path, mtime, gene, slide):
+    from xenium_spatial import figure_export as fx
+    from xenium_spatial.gene_focus import gene_vector
+    a = pipeline.load_clustered(path, mtime)
+    if "spatial" not in a.obsm:
+        return None
+    o = a.obs
+    xy = np.asarray(a.obsm["spatial"])
+    sl = o["slide_id"].astype(str).values if "slide_id" in o else np.array(["all"] * a.n_obs)
+    m = sl == slide
+    expr = gene_vector(a, gene, "lognorm")[m]
+    return fx.scatter_continuous(xy[m, 0], xy[m, 1], expr, xlabel="x (µm)", ylabel="y (µm)",
+                                 title=f"{slide} — {gene}", cbar_label=f"{gene} (log-norm)",
+                                 point_size=1.5, equal_aspect=True, invert_y=True, dark_bg=True)
+
+
+@st.cache_data(show_spinner=False)
+def _grid_diff_pdf(path, mtime, gene, n_bins, min_cells):
+    from xenium_spatial import figure_export as fx
+    g = _grid(path, mtime, gene, n_bins)
+    if not g or g.get("diff") is None:
+        return None
+    both = np.minimum(np.nan_to_num(g["counts"][g["conds"][0]]),
+                      np.nan_to_num(g["counts"][g["conds"][1]]))
+    diff = g["diff"].copy()
+    diff[both < min_cells] = np.nan
+    if not np.isfinite(diff).any():
+        return None
+    vmax = float(np.nanmax(np.abs(diff)))
+    return fx.heatmap(diff, x_labels=[], y_labels=[], cmap="RdBu_r", center=0.0,
+                      vmin=-vmax, vmax=vmax, cbar_label="Δ (log-norm)",
+                      title=f"{gene} difference ({g['direction']})",
+                      xlabel="medial ↔ lateral", ylabel="dorsal → ventral")
 
 
 page_header("🎯 Gene focus", "Quantitative analysis of one gene across clusters, conditions and space")
@@ -110,19 +181,11 @@ else:
 figv.update_layout(height=380, margin=dict(l=10, r=10, t=20, b=10),
                    xaxis_title=group_key, yaxis_title=f"{gene} (log-norm)")
 st.plotly_chart(figv, use_container_width=True)
-from xenium_spatial import figure_export as fx  # noqa: E402
 try:
-    if split and has_cond:
-        _vio_pdf = fx.violin_by_group(
-            vdf, group_col="group", value_col="expr", order=order,
-            xlabel=group_key, ylabel=f"{gene} (log-norm)", title=f"{gene} by cluster",
-            split_col="condition", split_levels=conds, split_colour=cond_colour)
-    else:
-        _vio_pdf = fx.violin_by_group(
-            vdf, group_col="group", value_col="expr", order=order,
-            xlabel=group_key, ylabel=f"{gene} (log-norm)", title=f"{gene} by cluster")
-    st.download_button("⬇️ Expression violins (PDF, publication)", data=_vio_pdf,
-                       file_name=f"{gene}_violins.pdf", mime="application/pdf")
+    _vio = _violin_pdf(str(h5ad_path), mtime, gene, group_key, bool(split and has_cond))
+    if _vio:
+        st.download_button("⬇️ Expression violins (PDF, publication)", data=_vio,
+                           file_name=f"{gene}_violins.pdf", mime="application/pdf")
 except Exception as e:  # noqa: BLE001
     logger.exception("Gene violin PDF export failed")
     st.caption(f"PDF export unavailable: {e}")
@@ -168,12 +231,11 @@ else:
                            title=f"{gene} fold-change per cluster")
         st.plotly_chart(figf, use_container_width=True)
         try:
-            _fc_pdf = fx.hbar(bar["log2fc"].to_numpy(), bar["group"].tolist(),
-                              xlabel=f"log2FC ({direction})", ylabel=group_key,
-                              title=f"{gene} fold-change per cluster")
-            st.download_button("⬇️ Fold-change per cluster (PDF, publication)", data=_fc_pdf,
-                               file_name=f"{gene}_log2fc_per_cluster.pdf",
-                               mime="application/pdf")
+            _fc = _fc_pdf(str(h5ad_path), mtime, gene, group_key)
+            if _fc:
+                st.download_button("⬇️ Fold-change per cluster (PDF, publication)", data=_fc,
+                                   file_name=f"{gene}_log2fc_per_cluster.pdf",
+                                   mime="application/pdf")
         except Exception as e:  # noqa: BLE001
             logger.exception("Gene log2FC PDF export failed")
             st.caption(f"PDF export unavailable: {e}")
@@ -211,13 +273,10 @@ if "spatial" in adata.obsm:
     st.plotly_chart(figs, use_container_width=True)
     st.caption(f"{int(m.sum()):,} cells on **{slide}** coloured by {gene} log-norm.")
     try:
-        _smap_pdf = fx.scatter_continuous(
-            sdf["x"].to_numpy(), sdf["y"].to_numpy(), sdf[gene].to_numpy(),
-            xlabel="x (µm)", ylabel="y (µm)", title=f"{slide} — {gene}",
-            cbar_label=f"{gene} (log-norm)", point_size=1.5,
-            equal_aspect=True, invert_y=True, dark_bg=True)
-        st.download_button("⬇️ Spatial expression (PDF, publication)", data=_smap_pdf,
-                           file_name=f"{gene}_spatial_{slide}.pdf", mime="application/pdf")
+        _smap = _genespatial_pdf(str(h5ad_path), mtime, gene, slide)
+        if _smap:
+            st.download_button("⬇️ Spatial expression (PDF, publication)", data=_smap,
+                               file_name=f"{gene}_spatial_{slide}.pdf", mime="application/pdf")
     except Exception as e:  # noqa: BLE001
         logger.exception("Gene spatial PDF export failed")
         st.caption(f"PDF export unavailable: {e}")
@@ -267,14 +326,11 @@ if st.session_state.get("_grid_ready"):
                 st.warning("Every bin is below the min-cell threshold — lower the grid size or threshold.")
             else:
                 try:
-                    _grid_pdf = fx.heatmap(
-                        diff, x_labels=[], y_labels=[], cmap="RdBu_r", center=0.0,
-                        vmin=-vmax, vmax=vmax, cbar_label="Δ (log-norm)",
-                        title=f"{gene} difference ({g['direction']})",
-                        xlabel="medial ↔ lateral", ylabel="dorsal → ventral")
-                    st.download_button("⬇️ Age-effect grid (PDF, publication)", data=_grid_pdf,
-                                       file_name=f"{gene}_ageeffect_grid.pdf",
-                                       mime="application/pdf")
+                    _gd = _grid_diff_pdf(str(h5ad_path), mtime, gene, int(n_bins), int(min_cells))
+                    if _gd:
+                        st.download_button("⬇️ Age-effect grid (PDF, publication)", data=_gd,
+                                           file_name=f"{gene}_ageeffect_grid.pdf",
+                                           mime="application/pdf")
                 except Exception as e:  # noqa: BLE001
                     logger.exception("Age-effect grid PDF export failed")
                     st.caption(f"PDF export unavailable: {e}")
@@ -293,5 +349,6 @@ if st.session_state.get("_grid_ready"):
             col.plotly_chart(f, use_container_width=True)
 
 st.info("⚠️ n ≈ 2 per condition — treat condition differences (per-cluster DE and the spatial "
-        "grid) as discovery; validate in an independent cohort. The grid assumes the MBH ROIs "
-        "are framed consistently across sections.")
+        "grid) as discovery; validate in an independent cohort. The grid's dorsal→ventral / "
+        "medial↔lateral axes only line up across slides when each section is **straightened** "
+        "and its MBH ROI framed consistently (set the per-slide rotation in the 🗺️ ROI Manager).")

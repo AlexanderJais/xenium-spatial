@@ -1,5 +1,5 @@
 """
-pages/6_composition.py
+pages/7_composition.py
 Cell-type composition — do cluster / cell-type proportions shift with condition?
 
 Reads the clustered AnnData persisted by the 🔬 Clusters page and compares
@@ -34,6 +34,38 @@ from xenium_spatial.composition import composition_long, composition_stats  # no
 logger = logging.getLogger("xenium_app")
 
 _WONG = ["#0072B2", "#D55E00", "#009E73", "#E69F00", "#56B4E9", "#CC79A7", "#F0E442"]
+
+
+@st.cache_data(show_spinner=False)
+def _composition_pdfs(path, mtime, group_key):
+    """Stacked-composition + proportion-by-condition PDFs, cached on file+group
+    so they don't re-render matplotlib on every rerun."""
+    from xenium_spatial import figure_export as fx
+    from xenium_spatial.composition import composition_long, composition_stats
+    a = pipeline.load_clustered(path, mtime)
+    o = a.obs
+    comp = composition_long(o, group_key=group_key, sample_key="replicate",
+                            condition_key="condition", batch_key="batch")
+    comp["percent"] = comp["proportion"] * 100
+    sample_order = (comp.drop_duplicates("replicate")
+                        .sort_values(["condition", "replicate"])["replicate"].tolist())
+    group_order_full = sorted(comp[group_key].astype(str).unique(), key=lambda x: (len(x), x))
+    conds = sorted(o["condition"].astype(str).unique())
+    cond_colour = {c: _WONG[i % len(_WONG)] for i, c in enumerate(conds)}
+    means = (comp.groupby([group_key, "condition"], observed=True)["percent"]
+                 .mean().reset_index())
+    stats = composition_stats(comp, group_key=group_key, condition_key="condition")
+    group_order = stats[group_key].astype(str).tolist()
+    pal = {g: fx.WONG[i % len(fx.WONG)] for i, g in enumerate(group_order_full)}
+    stacked = fx.stacked_bar(comp, sample_col="replicate", value_col="percent",
+                             group_col=group_key, sample_order=sample_order,
+                             group_order=group_order_full, palette=pal,
+                             ylabel="% of cells", title="Per-replicate composition")
+    dots = fx.grouped_dots(comp, means, group_col=group_key, value_col="percent",
+                           cond_col="condition", group_order=group_order, conds=conds,
+                           cond_colour=cond_colour, ylabel="% of cells",
+                           title="Proportion by condition")
+    return stacked, dots
 
 
 page_header("📊 Cell-type composition", "Do cell-type proportions shift between conditions?")
@@ -80,7 +112,6 @@ comp["percent"] = comp["proportion"] * 100
 # Order samples by condition for a readable axis.
 sample_order = (comp.drop_duplicates("replicate")
                     .sort_values(["condition", "replicate"])["replicate"].tolist())
-group_order_full = sorted(comp[group_key].astype(str).unique(), key=lambda x: (len(x), x))
 fig_stack = px.bar(comp, x="replicate", y="percent", color=group_key,
                    category_orders={"replicate": sample_order},
                    labels={"percent": "% of cells", "replicate": "sample"})
@@ -88,16 +119,12 @@ fig_stack.update_layout(height=420, barmode="stack", margin=dict(l=10, r=10, t=3
                         legend_title=group_key)
 st.plotly_chart(fig_stack, use_container_width=True)
 try:
-    from xenium_spatial import figure_export as fx
-    _pal = {g: fx.WONG[i % len(fx.WONG)] for i, g in enumerate(group_order_full)}
-    _stack_pdf = fx.stacked_bar(
-        comp, sample_col="replicate", value_col="percent", group_col=group_key,
-        sample_order=sample_order, group_order=group_order_full, palette=_pal,
-        ylabel="% of cells", title="Per-replicate composition")
+    _stack_pdf, _dots_pdf = _composition_pdfs(str(h5ad_path), h5ad_path.stat().st_mtime, group_key)
     st.download_button("⬇️ Stacked composition (PDF, publication)", data=_stack_pdf,
                        file_name="composition_stacked.pdf", mime="application/pdf")
 except Exception as e:  # noqa: BLE001
-    logger.exception("Stacked composition PDF export failed")
+    logger.exception("Composition PDF export failed")
+    _stack_pdf = _dots_pdf = None
     st.caption(f"PDF export unavailable: {e}")
 
 # ── Per-cell-type proportion by condition (honest n≈2 dots) ──────────────────
@@ -125,17 +152,9 @@ fig.update_layout(height=460, barmode="group", margin=dict(l=10, r=10, t=30, b=1
                              title=group_key),
                   yaxis_title="% of cells", legend=dict(orientation="h", y=1.02))
 st.plotly_chart(fig, use_container_width=True)
-try:
-    from xenium_spatial import figure_export as fx
-    _dots_pdf = fx.grouped_dots(
-        comp, means, group_col=group_key, value_col="percent", cond_col="condition",
-        group_order=group_order, conds=conds, cond_colour=cond_colour,
-        ylabel="% of cells", title="Proportion by condition")
+if _dots_pdf:
     st.download_button("⬇️ Proportion by condition (PDF, publication)", data=_dots_pdf,
                        file_name="composition_by_condition.pdf", mime="application/pdf")
-except Exception as e:  # noqa: BLE001
-    logger.exception("Proportion-by-condition PDF export failed")
-    st.caption(f"PDF export unavailable: {e}")
 
 # ── Stats table ──────────────────────────────────────────────────────────────
 st.subheader("Effect sizes")

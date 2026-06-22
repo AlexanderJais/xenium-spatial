@@ -199,6 +199,11 @@ for i, slide in enumerate(slides):
                 n_blank     = int(type_counts.get("Blank Codeword", 0))
                 n_neg_cw    = int(type_counts.get("Negative Control Codeword", 0))
                 n_neg_probe = int(type_counts.get("Negative Control Probe", 0))
+                # Newer XOA outputs split the old "Blank Codeword" QC class into
+                # Unassigned + Deprecated codewords; recognise both so the caption
+                # matches the loader's accounting (which logs all four classes).
+                n_unassigned = int(type_counts.get("Unassigned Codeword", 0))
+                n_deprecated = int(type_counts.get("Deprecated Codeword", 0))
                 # Classify the slide's RNA genes by NAME against the base panel
                 # (matching PanelRegistry), rather than subtracting a fixed base
                 # count — which misreports whenever a slide is missing base genes
@@ -229,12 +234,16 @@ for i, slide in enumerate(slides):
                 n_cells = len(pd.read_csv(bc_path, header=None, compression="gzip"))
 
                 control_parts = []
-                if n_blank > 0:
-                    control_parts.append(f"{n_blank} blank codewords")
                 if n_neg_cw > 0:
                     control_parts.append(f"{n_neg_cw} neg. control codewords")
                 if n_neg_probe > 0:
                     control_parts.append(f"{n_neg_probe} neg. control probes")
+                if n_unassigned > 0:
+                    control_parts.append(f"{n_unassigned} unassigned")
+                if n_deprecated > 0:
+                    control_parts.append(f"{n_deprecated} deprecated")
+                if n_blank > 0:  # legacy XOA naming, kept as a fallback
+                    control_parts.append(f"{n_blank} blank codewords")
                 control_str = (
                     f" + {', '.join(control_parts)}" if control_parts else ""
                 )

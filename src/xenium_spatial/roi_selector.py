@@ -95,16 +95,44 @@ class ROISelector:
         if "spatial" not in adata.obsm:
             raise ValueError("adata.obsm['spatial'] required.")
 
-        xy = adata.obsm["spatial"].astype(np.float64)
+        # Section straightening: the ROI vertices are stored in the *canonical*
+        # (post-rotation) frame, so rotate the cell coordinates the same way
+        # before the polygon test. Identity transform → unchanged. See
+        # transform.py — the ROI Manager uses the same maths for its preview.
+        from .transform import transform_from_roi, apply_transform, is_identity
+
+        xy_raw = adata.obsm["spatial"].astype(np.float64)
+        tf = transform_from_roi(roi)
+        xy = (xy_raw if is_identity(tf)
+              else apply_transform(xy_raw, tf["rotation_deg"], tf["pivot"]))
+
         inside = _points_in_polygon(xy, vertices)
         mask = ~inside if invert else inside
 
         result = adata[mask].copy()
         result.obs["roi_name"] = roi.get("roi_name", "ROI")
+
+        # Hand downstream the canonical (straightened) coordinates so the maps,
+        # the "dorsal→ventral = y" reading, and the spatial grid are consistent
+        # across slides. Keep the raw coordinates for provenance.
+        if not is_identity(tf):
+            result.obsm["spatial_raw"] = xy_raw[mask]
+            result.obsm["spatial"] = xy[mask]
+            for axis, col in ((0, "centroid_x"), (1, "centroid_y")):
+                if col in result.obs.columns:
+                    result.obs[f"{col}_raw"] = result.obs[col].to_numpy()
+                    result.obs[col] = xy[mask][:, axis]
+            result.uns["section_transform"] = {
+                "slide_id": slide_id, "rotation_deg": tf["rotation_deg"],
+                "pivot": (list(tf["pivot"]) if tf["pivot"] is not None else None),
+            }
+
         logger.info(
-            "ROI '%s' applied to '%s': %d / %d cells selected (%.1f%%)",
+            "ROI '%s' applied to '%s': %d / %d cells selected (%.1f%%)%s",
             roi.get("roi_name"), slide_id,
             mask.sum(), adata.n_obs, 100 * mask.sum() / max(adata.n_obs, 1),
+            ("" if is_identity(tf)
+             else f" | straightened {tf['rotation_deg']:+.1f}°"),
         )
         return result
 
