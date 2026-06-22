@@ -293,5 +293,6 @@ if st.session_state.get("_grid_ready"):
             col.plotly_chart(f, use_container_width=True)
 
 st.info("⚠️ n ≈ 2 per condition — treat condition differences (per-cluster DE and the spatial "
-        "grid) as discovery; validate in an independent cohort. The grid assumes the MBH ROIs "
-        "are framed consistently across sections.")
+        "grid) as discovery; validate in an independent cohort. The grid's dorsal→ventral / "
+        "medial↔lateral axes only line up across slides when each section is **straightened** "
+        "and its MBH ROI framed consistently (set the per-slide rotation in the 🗺️ ROI Manager).")
