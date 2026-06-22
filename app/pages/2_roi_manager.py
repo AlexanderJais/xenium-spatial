@@ -344,7 +344,7 @@ selected_slide = next((s for s in slides if s["slide_id"] == selected_id), None)
 if st.session_state["roi_last_slide"] != selected_id:
     for k in [f"sl_x0_{selected_id}", f"sl_x1_{selected_id}",
               f"sl_y0_{selected_id}", f"sl_y1_{selected_id}",
-              f"rot_{selected_id}"]:
+              f"rot_{selected_id}", f"roi_rot_applied_{selected_id}"]:
         st.session_state.pop(k, None)
     st.session_state["roi_last_slide"] = selected_id
 
@@ -406,6 +406,16 @@ with ctrl_col:
         if rotation:
             _cxy = apply_transform(raw_xy, rotation, pivot)
             cells_df = pd.DataFrame({"centroid_x": _cxy[:, 0], "centroid_y": _cxy[:, 1]})
+
+        # Changing the rotation shifts the canonical tissue bounds, so a box-edge
+        # value stored under the previous rotation can fall outside the new
+        # slider range (which Streamlit rejects). Reset the box sliders on a
+        # rotation change so they re-default cleanly within the new bounds.
+        if st.session_state.get(f"roi_rot_applied_{selected_id}") != rotation:
+            for _k in (f"sl_x0_{selected_id}", f"sl_x1_{selected_id}",
+                       f"sl_y0_{selected_id}", f"sl_y1_{selected_id}"):
+                st.session_state.pop(_k, None)
+            st.session_state[f"roi_rot_applied_{selected_id}"] = rotation
 
         tx0 = float(cells_df["centroid_x"].min())
         tx1 = float(cells_df["centroid_x"].max())
@@ -561,7 +571,9 @@ with ctrl_col:
                     st.rerun()
 
         with st.expander("📋 Paste coordinates (advanced)"):
-            st.caption("One x,y pair per line in µm:")
+            st.caption("One x,y pair per line in µm:" + (
+                "  ⚠️ coordinates are read in the **straightened** frame "
+                f"(current rotation {rotation:+.1f}° is applied)." if rotation else ""))
             paste = st.text_area("Vertices", height=90,
                                   placeholder="3200, 4100\n4800, 4100\n4800, 5600\n3200, 5600",
                                   key=f"paste_{selected_id}")
