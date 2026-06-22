@@ -1,5 +1,5 @@
 """
-pages/7_dge.py
+pages/8_dge.py
 Pseudobulk differential expression — within a cell type, AGED vs ADULT.
 
 Reads the clustered AnnData, pseudobulks the chosen cell type per replicate, and

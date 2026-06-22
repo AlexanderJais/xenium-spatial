@@ -1,5 +1,5 @@
 """
-pages/6_composition.py
+pages/7_composition.py
 Cell-type composition — do cluster / cell-type proportions shift with condition?
 
 Reads the clustered AnnData persisted by the 🔬 Clusters page and compares

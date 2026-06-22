@@ -1,5 +1,5 @@
 """
-pages/8_spatial.py
+pages/9_spatial.py
 Spatial maps + niches — the readouts that use the Xenium cell coordinates.
 
 Reads the clustered AnnData and shows, per slide, where each cell type sits, plus

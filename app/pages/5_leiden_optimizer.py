@@ -1,5 +1,5 @@
 """
-pages/4_leiden_optimizer.py
+pages/5_leiden_optimizer.py
 Leiden Resolution Optimizer — automated resolution sweep with silhouette +
 modularity scoring, run directly on the study's slides.
 

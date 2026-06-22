@@ -1,5 +1,5 @@
 """
-pages/5_clusters.py
+pages/6_clusters.py
 Cell clusters — UMAP + marker-based annotation.
 
 Builds the final cell-level clustering at the applied Leiden resolution (UMAP +

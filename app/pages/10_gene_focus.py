@@ -1,5 +1,5 @@
 """
-pages/9_gene_focus.py
+pages/10_gene_focus.py
 Gene focus — quantitative analysis of one gene (default Galanin / Gal).
 
 Reads the clustered AnnData and reports, for the selected gene: expression and

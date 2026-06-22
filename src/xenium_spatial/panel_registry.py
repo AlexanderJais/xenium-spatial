@@ -264,6 +264,59 @@ class PanelRegistry:
         df.index.name  = "gene"
         return df.reset_index().sort_values("n_slides", ascending=False).reset_index(drop=True)
 
+    def consensus_panel(self, gene_sets_by_slide: dict) -> dict:
+        """Consensus gene panel across slides: genes present in EVERY slide.
+
+        Strict intersection — base and custom genes alike must be measured in
+        all slides to enter the consensus, so nothing is ever zero-filled and
+        every consensus gene is genuinely comparable across samples. Computed
+        from gene *names* so the Consensus-Panel page (which reads each slide's
+        ``features.tsv.gz``) and :meth:`harmonise` (which reads ``var_names``)
+        agree on exactly the same set.
+
+        Parameters
+        ----------
+        gene_sets_by_slide:
+            Mapping ``slide_id -> set(gene_name)`` of each slide's
+            Gene-Expression targets.
+
+        Returns
+        -------
+        dict: ``slides``, ``base`` (base genes in all, panel order),
+        ``addon`` (custom genes in all, sorted), ``consensus`` (base+addon),
+        ``excluded_addon`` / ``excluded_base`` (present in some but not all),
+        ``presence`` (``{gene: {slide: bool}}`` for addon + excluded_addon),
+        and ``per_slide`` (total / base / custom / custom_in_consensus counts).
+        """
+        slides = list(gene_sets_by_slide)
+        empty = {"slides": [], "base": [], "addon": [], "consensus": [],
+                 "excluded_addon": [], "excluded_base": [], "presence": {},
+                 "per_slide": {}}
+        if not slides:
+            return empty
+        sets = [set(gene_sets_by_slide[s]) for s in slides]
+        universal = set.intersection(*sets)
+        union_all = set.union(*sets)
+        base_set = self.base_gene_set
+
+        base  = [g for g in self.base_genes if g in universal]
+        addon = sorted(universal - base_set)
+        excluded_addon = sorted((union_all - base_set) - universal)
+        excluded_base  = [g for g in self.base_genes
+                          if g in union_all and g not in universal]
+        presence = {g: {s: (g in gs) for s, gs in zip(slides, sets)}
+                    for g in (addon + excluded_addon)}
+        per_slide = {}
+        for s, gs in zip(slides, sets):
+            custom = gs - base_set
+            per_slide[s] = {"total": len(gs), "base": len(gs & base_set),
+                            "custom": len(custom),
+                            "custom_in_consensus": len(custom & universal)}
+        return {"slides": slides, "base": base, "addon": addon,
+                "consensus": base + addon, "excluded_addon": excluded_addon,
+                "excluded_base": excluded_base, "presence": presence,
+                "per_slide": per_slide}
+
     def recommend_min_slides(
         self,
         adatas: list[ad.AnnData],
@@ -373,7 +426,7 @@ class PanelRegistry:
         self,
         adatas: list[ad.AnnData],
         slide_ids: list[str],
-        mode: Literal["intersection", "partial_union", "union"] = "partial_union",
+        mode: Literal["consensus", "intersection", "partial_union", "union"] = "consensus",
         min_slides: int = 2,
         fill_value: float = 0.0,
     ) -> list[ad.AnnData]:
@@ -404,7 +457,29 @@ class PanelRegistry:
         # Pre-compute overlap for annotation and filtering
         overlap_df = self.custom_gene_counts(adatas, slide_ids)
 
-        if mode == "intersection":
+        if mode == "consensus":
+            # Strict intersection across all slides (base + custom alike). Every
+            # gene is present in every slide, so nothing is zero-filled.
+            universal = set(adatas[0].var_names)
+            for a in adatas[1:]:
+                universal &= set(a.var_names)
+            base_in_all  = [g for g in self.base_genes if g in universal]
+            addon_in_all = sorted(universal - self.base_gene_set)
+            gene_order   = base_in_all + addon_in_all
+            n_excl_base  = sum(
+                1 for g in self.base_genes
+                if any(g in set(a.var_names) for a in adatas) and g not in universal
+            )
+            logger.info(
+                "Harmonise [consensus]: strict intersection across %d slides\n"
+                "  Base genes (in all)  : %d\n"
+                "  Add-on genes (in all): %d\n"
+                "  Base excluded (missing in >=1 slide): %d\n"
+                "  Total consensus set  : %d  (no zero-filling)",
+                n, len(base_in_all), len(addon_in_all), n_excl_base, len(gene_order),
+            )
+
+        elif mode == "intersection":
             common     = self.base_gene_set.copy()
             for a in adatas:
                 common &= set(a.var_names)
@@ -455,7 +530,8 @@ class PanelRegistry:
 
         else:
             raise ValueError(
-                f"mode must be 'intersection', 'partial_union', or 'union'. Got '{mode}'."
+                "mode must be 'consensus', 'intersection', 'partial_union', or "
+                f"'union'. Got '{mode}'."
             )
 
         # Zero-fill missing genes and subset to gene_order for every slide

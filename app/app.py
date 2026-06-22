@@ -3,11 +3,12 @@ app.py
 ------
 Xenium Spatial Pipeline — streamlined local web interface.
 
-Four steps:
+Setup steps:
     1. Study Setup      — point to the Xenium output directories
-    2. ROI Manager      — frame the MBH region per slide
-    3. Sample PCA       — pseudobulk PCA across the samples (Nature-style)
-    4. Leiden Optimizer — estimate PCs (elbow plot), sweep clustering
+    2. Consensus Panel  — strict-intersection gene set the pipeline runs on
+    3. ROI Manager      — frame the MBH region per slide
+    4. Sample PCA       — pseudobulk PCA across the samples (Nature-style)
+    5. Leiden Optimizer — estimate PCs (elbow plot), sweep clustering
                            resolutions and pick the best
 
 Run with:  streamlit run app/app.py
@@ -48,6 +49,7 @@ prune_orphan_rois()  # keep roi_polygons clean of slides no longer configured
 configured = _slides_configured()
 n_slides   = len(st.session_state["slides"])
 n_roi      = _rois_saved()
+consensus_done = (Path(st.session_state["output_dir"]) / "consensus_panel.json").exists()
 pca_done   = (Path(st.session_state["output_dir"]) / "sample_pca"
               / "sample_pca_scatter.pdf").exists()
 leiden_done = (Path(st.session_state["output_dir"]) / "leiden_optimizer"
@@ -57,22 +59,26 @@ leiden_done = (Path(st.session_state["output_dir"]) / "leiden_optimizer"
 def _current_step() -> int:
     if not configured:
         return 1
-    if not n_roi:
+    if not consensus_done:
         return 2
-    if not pca_done:
+    if not n_roi:
         return 3
-    if not leiden_done:
+    if not pca_done:
         return 4
-    return 5  # every step complete
+    if not leiden_done:
+        return 5
+    return 6  # every step complete
 
 current_step = _current_step()
-all_done = current_step == 5
+all_done = current_step == 6
 
-STEP_LABELS = ["Study Setup", "ROI Manager", "Sample PCA", "Leiden Optimizer"]
+STEP_LABELS = ["Study Setup", "Consensus Panel", "ROI Manager", "Sample PCA",
+               "Leiden Optimizer"]
 
 
 def _step_state(step_n: int) -> str:
-    done_map = {1: configured > 0, 2: n_roi > 0, 3: pca_done, 4: leiden_done}
+    done_map = {1: configured > 0, 2: consensus_done, 3: n_roi > 0,
+                4: pca_done, 5: leiden_done}
     if done_map.get(step_n):
         return "done"
     return "current" if step_n == current_step else "pending"
@@ -104,9 +110,10 @@ st.divider()
 st.markdown("#### Workflow")
 STEPS = [
     (1, "Study Setup", "Enter the path to each Xenium run folder; a green tick confirms it is valid. Save/load the full config as JSON."),
-    (2, "ROI Manager", "Frame the mediobasal hypothalamus on each section by dragging a box on the interactive scatter (or fine-tuning the edge sliders); the live cell count updates as you go."),
-    (3, "Sample PCA",  "Pseudobulk each slide and run PCA across the samples — see how samples and the condition groups separate."),
-    (4, "Leiden Optimizer", "Estimate how many PCs to keep with the elbow plot, then sweep Leiden resolutions on the cells, score each with silhouette / modularity / spatial coherence, and apply the best to the pipeline settings."),
+    (2, "Consensus Panel", "Build the consensus gene set — the strict intersection of every sample's panel (base + shared add-on genes) — and lock it in as what the whole pipeline runs on, so no gene is ever zero-filled."),
+    (3, "ROI Manager", "Frame the mediobasal hypothalamus on each section by dragging a box on the interactive scatter (or fine-tuning the edge sliders); the live cell count updates as you go."),
+    (4, "Sample PCA",  "Pseudobulk each slide and run PCA across the samples — see how samples and the condition groups separate."),
+    (5, "Leiden Optimizer", "Estimate how many PCs to keep with the elbow plot, then sweep Leiden resolutions on the cells, score each with silhouette / modularity / spatial coherence, and apply the best to the pipeline settings."),
 ]
 items = []
 for step_n, title, desc in STEPS:
@@ -138,10 +145,12 @@ if items:
 st.markdown('<ol style="list-style:none;padding:0;margin:0;">' + "\n".join(items) + "</ol>",
             unsafe_allow_html=True)
 
-CTA_PAGES = {1: "pages/1_study_setup.py", 2: "pages/2_roi_manager.py",
-             3: "pages/3_sample_pca.py", 4: "pages/4_leiden_optimizer.py"}
-CTA_LABELS = {1: "→ Configure slides", 2: "→ Draw ROIs",
-              3: "→ Run sample PCA", 4: "→ Optimize Leiden resolution"}
+CTA_PAGES = {1: "pages/1_study_setup.py", 2: "pages/2_consensus_panel.py",
+             3: "pages/3_roi_manager.py", 4: "pages/4_sample_pca.py",
+             5: "pages/5_leiden_optimizer.py"}
+CTA_LABELS = {1: "→ Configure slides", 2: "→ Review consensus panel",
+              3: "→ Draw ROIs", 4: "→ Run sample PCA",
+              5: "→ Optimize Leiden resolution"}
 st.markdown("<br>", unsafe_allow_html=True)
 if all_done:
     st.success("✅ All steps complete — revisit any page from the sidebar to "

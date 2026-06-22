@@ -1,5 +1,5 @@
 """
-pages/2_roi_manager.py
+pages/3_roi_manager.py
 ROI Manager — frame the MBH region for each slide.
 
 Approach

@@ -185,7 +185,7 @@ def init_session_state() -> None:
         "base_panel_csv": str(_ROOT / "data" / "Xenium_mBrain_v1_1_metadata.csv"),
         "output_dir"    : str(Path.home() / "xenium_sample_pca_output"),
         "roi_cache_dir" : str(_ROOT / "roi_cache"),
-        "panel_mode"    : "partial_union",
+        "panel_mode"    : "consensus",
         "min_slides"    : 2,
         "roi_polygons"  : {},
         "roi_last_slide": None,
