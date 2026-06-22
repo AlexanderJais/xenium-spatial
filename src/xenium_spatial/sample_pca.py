@@ -54,23 +54,14 @@ logger = logging.getLogger(__name__)
 # Encodes the Nature-grade figure conventions used across the project
 # (Arial-ish sans, thin spines, editable Type-42 PDF fonts).
 # ---------------------------------------------------------------------------
-_NATURE_RC = {
-    "font.size": 7, "axes.titlesize": 8, "axes.labelsize": 7,
-    "xtick.labelsize": 6, "ytick.labelsize": 6, "legend.fontsize": 6,
-    "axes.linewidth": 0.5, "axes.spines.top": False, "axes.spines.right": False,
-    "savefig.bbox": "tight", "pdf.fonttype": 42, "ps.fonttype": 42,
-}
+from .figure_style import apply_nature_style as _apply_style, ANNOT_FONTSIZE
+
 _WONG = ["#000000", "#E69F00", "#56B4E9", "#009E73",
          "#F0E442", "#0072B2", "#D55E00", "#CC79A7"]
 _CONDITION_COLOURS = {
     "Control": "#0072B2", "Treatment": "#D55E00",
     "ADULT": "#0072B2", "AGED": "#D55E00",
 }
-
-
-def _apply_style():
-    import matplotlib as mpl
-    mpl.rcParams.update(_NATURE_RC)
 
 
 def _savefig(fig, path: Path, fmt: str = "pdf", dpi: int = 300) -> Path:
@@ -384,26 +375,26 @@ def plot_sample_pca(
     _MARKERS = ["o", "s", "^", "D", "v", "P", "X", "*"]
     batch_marker = {b: _MARKERS[i % len(_MARKERS)] for i, b in enumerate(uniq_batch)}
 
-    fig, ax = plt.subplots(figsize=(3.5, 3.2))
+    fig, ax = plt.subplots(figsize=(3.7, 3.4))
     if show_batch:
         for cond in uniq:
             for b in uniq_batch:
                 m = (conds == cond) & (batches == b)
                 if m.any():
-                    ax.scatter(xs[m], ys[m], s=55, c=colour[cond],
+                    ax.scatter(xs[m], ys[m], s=64, c=colour[cond],
                                marker=batch_marker[b], edgecolors="black",
-                               linewidths=0.5, zorder=3)
+                               linewidths=0.6, zorder=3)
     else:
         for cond in uniq:
             m = conds == cond
-            ax.scatter(xs[m], ys[m], s=55, c=colour[cond], edgecolors="black",
-                       linewidths=0.5, zorder=3)
+            ax.scatter(xs[m], ys[m], s=64, c=colour[cond], edgecolors="black",
+                       linewidths=0.6, zorder=3)
 
     for i, sid in enumerate(pb.obs_names):
         ax.annotate(
             sid, (xs[i], ys[i]),
             xytext=(3, 3), textcoords="offset points",
-            fontsize=5.5, zorder=4,
+            fontsize=ANNOT_FONTSIZE, zorder=4,
         )
 
     ax.set_xlabel(f"PC{pc_x} ({vr[ix] * 100:.1f}%)")
@@ -415,22 +406,21 @@ def plot_sample_pca(
     # Legends. With both a colour (condition) and a shape (batch) legend, the
     # 4-corner sample layout leaves no free interior spot, so place them outside
     # the axes (stacked on the right) to avoid overlapping each other or points.
-    # savefig uses bbox="tight" (see _NATURE_RC), so the outside legends are kept.
+    # savefig uses bbox="tight" (Nature style), so the outside legends are kept.
     cond_handles = [Line2D([0], [0], marker="o", ls="", markerfacecolor=colour[c],
                            markeredgecolor="black", markersize=7, label=c)
                     for c in uniq]
     if show_batch:
         leg1 = ax.legend(handles=cond_handles, title=condition_key, frameon=False,
-                         fontsize=5.5, loc="upper left", bbox_to_anchor=(1.01, 1.0))
+                         loc="upper left", bbox_to_anchor=(1.01, 1.0))
         ax.add_artist(leg1)
         batch_handles = [Line2D([0], [0], marker=batch_marker[b], ls="",
                                 markerfacecolor="lightgrey", markeredgecolor="black",
                                 markersize=7, label=b) for b in uniq_batch]
         ax.legend(handles=batch_handles, title=batch_key, frameon=False,
-                  fontsize=5.5, loc="upper left", bbox_to_anchor=(1.01, 0.45))
+                  loc="upper left", bbox_to_anchor=(1.01, 0.45))
     elif len(uniq) > 1:
-        ax.legend(handles=cond_handles, title=condition_key, frameon=False,
-                  loc="best", fontsize=5.5)
+        ax.legend(handles=cond_handles, title=condition_key, frameon=False, loc="best")
 
     fig.tight_layout()
     return _savefig(fig, Path(output_dir) / "sample_pca_scatter", fmt=fmt, dpi=dpi)
@@ -484,12 +474,12 @@ def plot_sample_correlation(
     uniq = sorted(set(conds))
     colour = _condition_colours(uniq, CONDITION_COLOURS, WONG)
 
-    fig, ax = plt.subplots(figsize=(4.2, 3.6))
+    fig, ax = plt.subplots(figsize=(4.4, 3.8))
     im = ax.imshow(corr_o, cmap="viridis", aspect="equal", vmin=corr_o.min(), vmax=1.0)
     ax.set_xticks(range(n))
     ax.set_yticks(range(n))
-    ax.set_xticklabels(labels, rotation=90, fontsize=5.5)
-    ax.set_yticklabels(labels, fontsize=5.5)
+    ax.set_xticklabels(labels, rotation=90, fontsize=7)
+    ax.set_yticklabels(labels, fontsize=7)
 
     # Group colour bar along the top.
     for i, cond in enumerate(conds):
@@ -500,14 +490,14 @@ def plot_sample_correlation(
     ax.set_ylim(n - 0.5, -1.5)
 
     cbar = fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
-    cbar.set_label(f"{method.capitalize()} r", fontsize=6)
-    cbar.ax.tick_params(labelsize=5)
+    cbar.set_label(f"{method.capitalize()} r", fontsize=7.5)
+    cbar.ax.tick_params(labelsize=6.5)
 
     handles = [plt.Line2D([0], [0], marker="s", ls="", markerfacecolor=colour[c],
-                          markeredgecolor="none", markersize=6, label=c) for c in uniq]
+                          markeredgecolor="none", markersize=7, label=c) for c in uniq]
     if len(uniq) > 1:
         ax.legend(handles=handles, title=condition_key, frameon=False,
-                  loc="upper left", bbox_to_anchor=(1.25, 1.0), fontsize=5.5)
+                  loc="upper left", bbox_to_anchor=(1.25, 1.0))
     ax.set_title("Sample correlation (hierarchically ordered)")
     fig.tight_layout()
     return _savefig(fig, Path(output_dir) / "sample_correlation_heatmap", fmt=fmt, dpi=dpi)
@@ -527,7 +517,7 @@ def plot_scree(
     vr = np.asarray(pb.uns["pca"]["variance_ratio"]) * 100
     pcs = np.arange(1, len(vr) + 1)
 
-    fig, ax = plt.subplots(figsize=(3.2, 2.6))
+    fig, ax = plt.subplots(figsize=(3.4, 2.8))
     ax.bar(pcs, vr, color="#0072B2", width=0.7)
     ax.set_xlabel("Principal component")
     ax.set_ylabel("Variance explained (%)")

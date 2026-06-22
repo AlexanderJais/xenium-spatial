@@ -18,7 +18,7 @@ import streamlit as st
 import sys as _sys; _sys.path.insert(0, str(__import__('pathlib').Path(__file__).parent.parent))
 from ui_utils import inject_css, page_header, init_session_state
 
-st.set_page_config(page_title="Composition · Xenium Sample PCA", page_icon="📊", layout="wide",
+st.set_page_config(page_title="Composition · Xenium Spatial Pipeline", page_icon="📊", layout="wide",
     initial_sidebar_state="expanded")
 inject_css()
 init_session_state()
@@ -80,12 +80,25 @@ comp["percent"] = comp["proportion"] * 100
 # Order samples by condition for a readable axis.
 sample_order = (comp.drop_duplicates("replicate")
                     .sort_values(["condition", "replicate"])["replicate"].tolist())
+group_order_full = sorted(comp[group_key].astype(str).unique(), key=lambda x: (len(x), x))
 fig_stack = px.bar(comp, x="replicate", y="percent", color=group_key,
                    category_orders={"replicate": sample_order},
                    labels={"percent": "% of cells", "replicate": "sample"})
 fig_stack.update_layout(height=420, barmode="stack", margin=dict(l=10, r=10, t=30, b=10),
                         legend_title=group_key)
 st.plotly_chart(fig_stack, use_container_width=True)
+try:
+    from xenium_spatial import figure_export as fx
+    _pal = {g: fx.WONG[i % len(fx.WONG)] for i, g in enumerate(group_order_full)}
+    _stack_pdf = fx.stacked_bar(
+        comp, sample_col="replicate", value_col="percent", group_col=group_key,
+        sample_order=sample_order, group_order=group_order_full, palette=_pal,
+        ylabel="% of cells", title="Per-replicate composition")
+    st.download_button("⬇️ Stacked composition (PDF, publication)", data=_stack_pdf,
+                       file_name="composition_stacked.pdf", mime="application/pdf")
+except Exception as e:  # noqa: BLE001
+    logger.exception("Stacked composition PDF export failed")
+    st.caption(f"PDF export unavailable: {e}")
 
 # ── Per-cell-type proportion by condition (honest n≈2 dots) ──────────────────
 st.subheader("Proportion by condition")
@@ -112,6 +125,17 @@ fig.update_layout(height=460, barmode="group", margin=dict(l=10, r=10, t=30, b=1
                              title=group_key),
                   yaxis_title="% of cells", legend=dict(orientation="h", y=1.02))
 st.plotly_chart(fig, use_container_width=True)
+try:
+    from xenium_spatial import figure_export as fx
+    _dots_pdf = fx.grouped_dots(
+        comp, means, group_col=group_key, value_col="percent", cond_col="condition",
+        group_order=group_order, conds=conds, cond_colour=cond_colour,
+        ylabel="% of cells", title="Proportion by condition")
+    st.download_button("⬇️ Proportion by condition (PDF, publication)", data=_dots_pdf,
+                       file_name="composition_by_condition.pdf", mime="application/pdf")
+except Exception as e:  # noqa: BLE001
+    logger.exception("Proportion-by-condition PDF export failed")
+    st.caption(f"PDF export unavailable: {e}")
 
 # ── Stats table ──────────────────────────────────────────────────────────────
 st.subheader("Effect sizes")

@@ -13,7 +13,7 @@ from pathlib import Path
 import sys as _sys; _sys.path.insert(0, str(__import__('pathlib').Path(__file__).parent.parent))
 from ui_utils import inject_css, page_header, prune_orphan_rois, init_session_state
 
-st.set_page_config(page_title="Study Setup · Xenium Sample PCA", page_icon="📁", layout="wide",
+st.set_page_config(page_title="Study Setup · Xenium Spatial Pipeline", page_icon="📁", layout="wide",
     initial_sidebar_state="expanded")
 
 

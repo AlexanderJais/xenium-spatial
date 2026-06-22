@@ -19,7 +19,7 @@ import streamlit as st
 import sys as _sys; _sys.path.insert(0, str(__import__('pathlib').Path(__file__).parent.parent))
 from ui_utils import inject_css, page_header, init_session_state, applied_n_pcs
 
-st.set_page_config(page_title="Clusters · Xenium Sample PCA", page_icon="🔬", layout="wide",
+st.set_page_config(page_title="Clusters · Xenium Spatial Pipeline", page_icon="🔬", layout="wide",
     initial_sidebar_state="expanded")
 inject_css()
 init_session_state()
@@ -46,6 +46,62 @@ def _valid_dir(p: str) -> bool:
 def _markers_table(path: str, mtime: float, n_genes: int) -> pd.DataFrame:
     adata = pipeline.load_clustered(path, mtime)
     return rank_markers(adata, groupby="leiden", n_genes=n_genes)
+
+
+@st.cache_data(show_spinner=False)
+def _umap_pdf(path: str, mtime: float, colour_by: str, sel_gene: str | None) -> bytes:
+    """Nature-style UMAP PDF (vector axes/legend, rasterised points)."""
+    from xenium_spatial import figure_export as fx
+    a = pipeline.load_clustered(path, mtime)
+    um = np.asarray(a.obsm["X_umap"])
+    if colour_by == "Gene" and sel_gene:
+        layer = "lognorm" if "lognorm" in a.layers else None
+        expr = np.asarray(a.obs_vector(sel_gene, layer=layer)).ravel()
+        return fx.scatter_continuous(
+            um[:, 0], um[:, 1], expr, xlabel="UMAP1", ylabel="UMAP2",
+            title=f"{sel_gene} (log-normalised)", cbar_label=f"{sel_gene}",
+            point_size=1.5)
+    field = {"Cluster": "leiden", "Condition": "condition", "Batch": "batch"}[colour_by]
+    if field not in a.obs:
+        field = "leiden"
+    labels = a.obs[field].astype(str).values
+    order = (sorted(set(labels), key=lambda x: (len(x), x)) if field != "leiden"
+             else sorted(set(labels), key=lambda x: int(x)))
+    return fx.scatter_categorical(
+        um[:, 0], um[:, 1], labels, order=order, xlabel="UMAP1", ylabel="UMAP2",
+        legend_title=colour_by, point_size=1.5)
+
+
+@st.cache_data(show_spinner=False)
+def _marker_heatmap_pdf(path: str, mtime: float, n_per_cluster: int) -> bytes:
+    """Top-marker heatmap: z-scored mean log-norm expression, clusters × genes."""
+    from xenium_spatial import figure_export as fx
+    a = pipeline.load_clustered(path, mtime)
+    markers = rank_markers(a, groupby="leiden", n_genes=n_per_cluster)
+    tops = top_markers_by_cluster(markers, n=n_per_cluster)
+    clusters = sorted(tops, key=lambda x: int(x))
+    genes, seen = [], set()
+    for cl in clusters:
+        for g in tops[cl]:
+            if g not in seen:
+                genes.append(g); seen.add(g)
+    layer = "lognorm" if "lognorm" in a.layers else None
+    cl_vals = a.obs["leiden"].astype(str).values
+    mat = np.zeros((len(clusters), len(genes)))
+    for j, g in enumerate(genes):
+        expr = np.asarray(a.obs_vector(g, layer=layer)).ravel()
+        for i, cl in enumerate(clusters):
+            m = cl_vals == cl
+            mat[i, j] = expr[m].mean() if m.any() else np.nan
+    # z-score each gene (column) across clusters so colours are comparable.
+    mu = np.nanmean(mat, axis=0); sd = np.nanstd(mat, axis=0)
+    z = (mat - mu) / np.where(sd > 0, sd, 1.0)
+    return fx.heatmap(z, x_labels=genes, y_labels=clusters, cmap="RdBu_r",
+                      center=0.0, cbar_label="z (mean log-norm)",
+                      xlabel="marker gene", ylabel="cluster",
+                      title="Top marker genes per cluster",
+                      w=min(12.0, 0.18 * len(genes) + 1.5),
+                      h=min(9.0, 0.3 * len(clusters) + 1.2))
 
 
 # ── Page ───────────────────────────────────────────────────────────────────
@@ -186,6 +242,15 @@ fig.update_layout(height=560, margin=dict(l=10, r=10, t=40, b=10),
 st.plotly_chart(fig, use_container_width=True)
 st.caption("UMAP is for visualisation only — quantify on the cluster labels, not on UMAP distances. "
            f"Showing {len(df):,} of {adata.n_obs:,} cells.")
+try:
+    _pdf = _umap_pdf(str(h5ad_path), h5ad_path.stat().st_mtime, colour_by, sel_gene)
+    _fname = (f"umap_{sel_gene}.pdf" if (colour_by == "Gene" and sel_gene)
+              else f"umap_{colour_by.lower()}.pdf")
+    st.download_button("⬇️ UMAP (PDF, publication)", data=_pdf, file_name=_fname,
+                       mime="application/pdf")
+except Exception as e:  # noqa: BLE001
+    logger.exception("UMAP PDF export failed")
+    st.caption(f"PDF export unavailable: {e}")
 
 # ── Markers ─────────────────────────────────────────────────────────────────
 st.divider()
@@ -206,8 +271,17 @@ if st.session_state.get("_markers_ready"):
 if markers is not None:
     tops = top_markers_by_cluster(markers, n=8)
     st.dataframe(markers, use_container_width=True, hide_index=True, height=320)
-    st.download_button("⬇️ Markers (CSV)", data=markers.to_csv(index=False),
-                       file_name="cluster_markers.csv", mime="text/csv")
+    dl1, dl2 = st.columns(2)
+    dl1.download_button("⬇️ Markers (CSV)", data=markers.to_csv(index=False),
+                        file_name="cluster_markers.csv", mime="text/csv")
+    try:
+        _hm = _marker_heatmap_pdf(str(h5ad_path), h5ad_path.stat().st_mtime, 8)
+        dl2.download_button("⬇️ Marker heatmap (PDF, publication)", data=_hm,
+                            file_name="cluster_marker_heatmap.pdf",
+                            mime="application/pdf")
+    except Exception as e:  # noqa: BLE001
+        logger.exception("Marker heatmap PDF export failed")
+        dl2.caption(f"Heatmap PDF unavailable: {e}")
 else:
     tops = {}
 

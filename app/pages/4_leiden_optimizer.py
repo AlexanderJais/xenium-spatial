@@ -22,7 +22,7 @@ import sys as _sys; _sys.path.insert(0, str(__import__('pathlib').Path(__file__)
 from ui_utils import inject_css, page_header, init_session_state
 
 st.set_page_config(
-    page_title="Leiden Optimizer · Xenium Sample PCA",
+    page_title="Leiden Optimizer · Xenium Spatial Pipeline",
     page_icon="🔎",
     layout="wide",
     initial_sidebar_state="expanded",

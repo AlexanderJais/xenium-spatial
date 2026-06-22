@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "xenium-spatial-analysis"
 version = "0.1.0"
-description = "Multi-slide Xenium spatial analysis: panel harmonisation, ROI selection, sample-level pseudobulk PCA, and Leiden resolution optimisation."
+description = "End-to-end Xenium spatial pipeline: panel harmonisation, ROI selection, sample-level pseudobulk PCA, Leiden resolution optimisation, and cell-level quantification (clustering, composition, pseudobulk DGE, spatial niches, single-gene focus)."
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }

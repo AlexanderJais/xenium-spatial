@@ -1,7 +1,7 @@
 """
 app.py
 ------
-Xenium Sample PCA — streamlined local web interface.
+Xenium Spatial Pipeline — streamlined local web interface.
 
 Four steps:
     1. Study Setup      — point to the Xenium output directories
@@ -22,7 +22,7 @@ from ui_utils import (inject_css, page_header, prune_orphan_rois,
                       init_session_state, log_panel, paths_panel, applied_n_pcs)
 
 st.set_page_config(
-    page_title            = "Xenium Sample PCA",
+    page_title            = "Xenium Spatial Pipeline",
     page_icon             = "🧠",
     layout                = "wide",
     initial_sidebar_state = "expanded",
@@ -81,8 +81,8 @@ def _step_state(step_n: int) -> str:
 
 # ── Home ────────────────────────────────────────────────────────────────────
 page_header(
-    "Xenium Sample PCA",
-    "Pseudobulk PCA  ·  AGED vs ADULT mouse brain  ·  Mediobasal hypothalamus  ·  biological replicates",
+    "Xenium Spatial Pipeline",
+    "Sample QC  ·  cell clustering  ·  composition, DGE, spatial & gene-level quantification  ·  AGED vs ADULT mouse MBH",
 )
 
 col1, col2, col3, col4, col5 = st.columns(5)

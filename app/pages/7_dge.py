@@ -18,7 +18,7 @@ import streamlit as st
 import sys as _sys; _sys.path.insert(0, str(__import__('pathlib').Path(__file__).parent.parent))
 from ui_utils import inject_css, page_header, init_session_state
 
-st.set_page_config(page_title="DGE · Xenium Sample PCA", page_icon="🧪", layout="wide",
+st.set_page_config(page_title="DGE · Xenium Spatial Pipeline", page_icon="🧪", layout="wide",
     initial_sidebar_state="expanded")
 inject_css()
 init_session_state()
@@ -142,6 +142,15 @@ fig.update_layout(height=520, margin=dict(l=10, r=10, t=30, b=10),
                   xaxis_title="log2 fold-change", yaxis_title="-log10 p",
                   legend=dict(orientation="h", y=1.02))
 st.plotly_chart(fig, use_container_width=True)
+try:
+    from xenium_spatial import figure_export as fx
+    _volcano_pdf = fx.volcano(df, lfc_thresh=float(lfc_thresh), padj_thresh=float(padj_thresh),
+                              direction=direction, title=f"{cell_type} — AGED vs ADULT")
+    st.download_button("⬇️ Volcano (PDF, publication)", data=_volcano_pdf,
+                       file_name=f"volcano_{cell_type}.pdf", mime="application/pdf")
+except Exception as e:  # noqa: BLE001
+    logger.exception("Volcano PDF export failed")
+    st.caption(f"PDF export unavailable: {e}")
 
 show = df.copy()
 for c in show.columns:

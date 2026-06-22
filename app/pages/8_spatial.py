@@ -18,7 +18,7 @@ import streamlit as st
 import sys as _sys; _sys.path.insert(0, str(__import__('pathlib').Path(__file__).parent.parent))
 from ui_utils import inject_css, page_header, init_session_state
 
-st.set_page_config(page_title="Spatial · Xenium Sample PCA", page_icon="🗺️", layout="wide",
+st.set_page_config(page_title="Spatial · Xenium Spatial Pipeline", page_icon="🗺️", layout="wide",
     initial_sidebar_state="expanded")
 inject_css()
 init_session_state()
@@ -41,6 +41,31 @@ def _enrichment(path, mtime, group_key, slide_subset, n_neighbors, n_perms):
         adata = adata[adata.obs["slide_id"].astype(str).isin(set(slide_subset))].copy()
     return neighborhood_enrichment(adata, group_key=group_key, n_neighbors=n_neighbors,
                                    n_perms=n_perms)
+
+
+@st.cache_data(show_spinner=False)
+def _spatialmap_pdf(path, mtime, group_key, slide, highlight):
+    """Nature-style spatial cell-type map for one slide (PDF)."""
+    from xenium_spatial import figure_export as fx
+    a = pipeline.load_clustered(path, mtime)
+    o = a.obs
+    xy = np.asarray(a.obsm["spatial"])
+    sl = o["slide_id"].astype(str).values if "slide_id" in o else np.array(["all"] * a.n_obs)
+    m = sl == slide
+    lab = o[group_key].astype(str).values[m]
+    grps = sorted(set(lab), key=lambda x: (len(x), x))
+    if highlight and highlight != "— all —":
+        lab = np.where(lab == highlight, highlight, "other")
+        order = [highlight, "other"]
+        palette = {highlight: "#D55E00", "other": "#5A6470"}
+    else:
+        order = grps
+        palette = None
+    return fx.scatter_categorical(
+        xy[m, 0], xy[m, 1], lab, order=order, palette=palette,
+        xlabel="x (µm)", ylabel="y (µm)", title=f"{slide} — cell-type map",
+        legend_title=group_key, point_size=1.5, equal_aspect=True,
+        invert_y=True, dark_bg=True)
 
 
 page_header("🗺️ Spatial maps & niches", "Where the cell types sit, and which ones co-localise")
@@ -107,6 +132,13 @@ fig_map.update_layout(height=560, margin=dict(l=10, r=10, t=30, b=10),
                       plot_bgcolor="#111111", legend=dict(itemsizing="constant"))
 st.plotly_chart(fig_map, use_container_width=True)
 st.caption(f"{int(m.sum()):,} cells on slide **{slide}**. Y axis: 0 = dorsal, larger = ventral.")
+try:
+    _map_pdf = _spatialmap_pdf(str(h5ad_path), mtime, group_key, slide, highlight)
+    st.download_button("⬇️ Cell-type map (PDF, publication)", data=_map_pdf,
+                       file_name=f"spatial_map_{slide}.pdf", mime="application/pdf")
+except Exception as e:  # noqa: BLE001
+    logger.exception("Spatial map PDF export failed")
+    st.caption(f"PDF export unavailable: {e}")
 
 # ── Neighbourhood enrichment ─────────────────────────────────────────────────
 st.divider()
@@ -138,6 +170,13 @@ def _heat(z: pd.DataFrame, title: str):
                       yaxis=dict(autorange="reversed"))
     return fig
 
+
+def _enrich_pdf(z: pd.DataFrame, title: str) -> bytes:
+    from xenium_spatial import figure_export as fx
+    return fx.heatmap(z.values, x_labels=list(z.columns), y_labels=list(z.index),
+                      cmap="RdBu_r", center=0.0, cbar_label="z-score",
+                      title=f"Neighbourhood enrichment — {title}", annotate=True)
+
 if st.button("Compute neighbourhood enrichment", key="run_enrich"):
     st.session_state["_enrich_ready"] = True
 
@@ -156,6 +195,9 @@ if st.session_state.get("_enrich_ready"):
                     fig = _heat(z, c)
                     if fig is not None:
                         col.plotly_chart(fig, use_container_width=True)
+                        col.download_button(f"⬇️ {c} enrichment (PDF)", data=_enrich_pdf(z, c),
+                                            file_name=f"enrichment_{c}.pdf",
+                                            mime="application/pdf", key=f"enrich_pdf_{c}")
             else:
                 if split:
                     st.info("Only one condition present — showing the combined enrichment.")
@@ -163,8 +205,13 @@ if st.session_state.get("_enrich_ready"):
                 fig = _heat(z, "All slides")
                 if fig is not None:
                     st.plotly_chart(fig, use_container_width=True)
-                    st.download_button("⬇️ Enrichment z-scores (CSV)", data=z.to_csv(),
+                    d1, d2 = st.columns(2)
+                    d1.download_button("⬇️ Enrichment z-scores (CSV)", data=z.to_csv(),
                                        file_name="neighbourhood_enrichment.csv", mime="text/csv")
+                    d2.download_button("⬇️ Enrichment heatmap (PDF, publication)",
+                                       data=_enrich_pdf(z, "all slides"),
+                                       file_name="neighbourhood_enrichment.pdf",
+                                       mime="application/pdf")
     except Exception as e:
         logger.exception("Neighbourhood enrichment failed")
         st.error(f"Enrichment failed: {e}")

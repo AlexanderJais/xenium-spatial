@@ -1,8 +1,10 @@
-# Xenium Sample PCA
+# Xenium Spatial Pipeline
 
-**Sample-level (pseudobulk) PCA for AGED vs ADULT mouse brain (mediobasal hypothalamus)**
+**An end-to-end exploratory pipeline for a 10x Genomics Xenium spatial study — from sample-level QC through cell-level clustering to cell-type, spatial, and single-gene quantification (default: AGED vs ADULT mouse mediobasal hypothalamus).**
 
 A streamlined tool for the first exploratory steps of a [10x Genomics Xenium](https://www.10xgenomics.com/platforms/xenium) spatial study: load the slides, frame the mediobasal hypothalamus (MBH) region on each, collapse every slide into a pseudobulk profile, and run PCA across the samples to see **how the samples cluster and how the AGED and ADULT groups separate**. When you are ready to move from samples to cells, an optional **Leiden Optimizer** sweeps clustering resolutions on the single cells and recommends the one that best balances cluster quality and granularity — so the resolution you take into cell-level analysis is chosen by metrics, not by eye.
+
+From there a cell-level **quantification arm** carries the chosen clustering through UMAP + marker-based **annotation**, cell-type **composition** shifts, within-cell-type **differential expression**, **spatial** maps and neighbourhood niches, and a single-**gene focus** view (default Galanin) — every condition comparison done at the biological-replicate level. See [cell-level quantification](#cell-level-quantification).
 
 Built around a multi-replicate, two-condition study using the `Xenium_mBrain_v1_1` base panel (~247 genes) plus per-slide custom panels (~50 genes each, partially overlapping). The default example is 4 AGED + 4 ADULT brain sections, but **the number of slides and the condition labels are not fixed** — add or remove slides in **Study Setup** (or the `SLIDES` list / a manifest CSV for the CLI), use whatever group names your study needs, and select any subset of slides to analyse at each step (the Sample PCA needs ≥ 2 samples).
 
@@ -18,6 +20,7 @@ Runs entirely on your machine. No data leaves your computer.
 - [Command line](#command-line)
 - [How the PCA works](#how-the-pca-works)
 - [How the Leiden Optimizer works](#how-the-leiden-optimizer-works)
+- [Cell-level quantification](#cell-level-quantification)
 - [Batch correction](#batch-correction)
 - [Panel structure](#panel-structure)
 - [Outputs](#outputs)
@@ -62,7 +65,7 @@ The core workflow (Study Setup → ROI Manager → Sample PCA, and the
 NumPy/pandas/SciPy/scikit-learn/Matplotlib + AnnData for data handling,
 Streamlit/Plotly for the UI, PyArrow for `cells.parquet`. No DESeq2 is required.
 
-The **Leiden Optimizer** (step 4) is the one part that needs the single-cell stack — `scanpy`, `igraph`, `leidenalg`, and `harmonypy` (the `clustering` extra). These are imported lazily, so the Sample-PCA workflow runs fine even if they are not installed; you only need them to run the resolution sweep.
+The **cell-level steps** — the Leiden Optimizer **and** the quantification arm (steps 4–9) — need the single-cell stack: `scanpy`, `igraph`, `leidenalg`, and `harmonypy` (the `clustering` extra). These are imported lazily, so the Sample-PCA workflow (steps 1–3) runs fine even if they are not installed; you only need them once you move from samples to cells.
 
 > **macOS Apple Silicon:** `./install_mac.sh` creates a native ARM64 conda environment and installs everything for you.
 
@@ -76,7 +79,7 @@ streamlit run app/app.py
 
 Or double-click `start_app.command` in Finder. Your browser opens at http://localhost:8501.
 
-The app has four steps:
+The app is a numbered, sequential workflow — each page is also reachable directly from the sidebar:
 
 | Step | Page | Purpose |
 |------|------|---------|
@@ -88,11 +91,12 @@ The app has four steps:
 | 6 | **📊 Composition** | Reads the clustered object and compares **per-replicate** cell-type proportions across conditions: a stacked per-sample overview, a per-cell-type dot plot (one dot per replicate, bar = condition mean), and an effect-size table (log2 fold-change + an *exploratory* t-test). Proportions are computed per biological replicate — never per cell — and the UI is explicit that at n≈2 this is discovery, not significance. |
 | 7 | **🧪 Pseudobulk DGE** | Within a chosen cell type, pseudobulks the cells per replicate (reusing the Sample-PCA aggregator), then tests each gene across the replicate-level CPM values — a **volcano** + table + per-cell-type DE-count summary. Replicate-level (not per-cell) to avoid pseudoreplication; at n≈2 it's effect-size ranking, with a count model (DESeq2/edgeR) recommended for publication. |
 | 8 | **🗺️ Spatial maps & niches** | Uses the Xenium cell coordinates the other steps ignore: per-slide **cell-type maps** (optionally highlighting one type) and a **neighbourhood-enrichment** heatmap (permutation z-score for which cell types are spatial neighbours more/less than chance, shuffled within slide). The enrichment can be split by condition to surface aging niche changes. |
+| 9 | **🎯 Gene focus** | Quantitative analysis of one gene (default **Galanin / Gal**): expression + detection rate per cluster, **per-cluster differential expression** across conditions (pseudobulk per replicate, log2FC forest + table), a per-slide spatial expression map, and a **spatial age-effect grid** (AGED−ADULT difference per MBH sub-region, on slide-normalised coordinates). Replicate-level throughout; discovery only at n≈2. |
 
 The landing page also carries a progress summary (slides configured, ROIs saved, Sample PCA status, Leiden resolution, PCA components) and two diagnostics in expanders:
 
 - **🗂 Paths & environment** — shows where the app is running from and where each configured path (base panel CSV, ROI cache, output dir) points, flags any that resolve to a *different* checkout of the project (a common cause of stale ROIs when several copies coexist), and offers a one-click reset of the repo-relative paths to the running checkout.
-- **🪵 Debug log** — the app and the `xenium_spatial` package write to a rotating log at `logs/xenium_app.log`. The panel shows the file location, a verbosity selector (DEBUG…ERROR), a tail preview, and download/clear buttons — attach this log when reporting an issue.
+- **🪵 Debug log** — the app and the `xenium_spatial` package write to a rotating log at `logs/xenium_app.log`. The panel has a verbosity selector (DEBUG…ERROR) and produces a single **copy-paste block** combining the environment + key package versions with the recent log lines (length selectable) — copy it (the code-block copy icon) and paste it back when reporting an issue, so the report carries both the activity and the validation context. Full-log download / clear are also there.
 
 ---
 
@@ -115,7 +119,7 @@ Slide paths are configured at the top of `scripts/run_sample_pca.py` (the `SLIDE
 
 ## How the PCA works
 
-The analysis lives in `src/xenium_spatial/sample_pca.py` and runs in four steps:
+The analysis lives in `src/xenium_spatial/sample_pca.py` and runs in these steps:
 
 0. **Restrict to the base panel** (default) — drop per-slide add-on genes so every sample is compared on the shared `Xenium_mBrain_v1_1` panel (~247 genes). This matters because samples can carry different add-on panels; pass `--all-genes` (or untick "Base panel only") to keep them.
 1. **Pseudobulk** (`pseudobulk_samples`) — sum raw counts across all cells of each slide, giving one expression profile per biological replicate (one point per sample).
@@ -149,6 +153,22 @@ It runs in three stages:
 Each metric is min-max normalised to [0, 1] and combined into a single weighted score. With spatial coordinates the weights are **silhouette 30% · Calinski-Harabasz 15% · Davies-Bouldin 15% · spatial coherence 20% · modularity 20%**; without them, silhouette and modularity each take 35%. The resolution with the highest combined score is recommended.
 
 The page shows the per-metric curves, a **clustree** (Sankey diagram of how clusters split and merge across resolutions), and a one-click **Apply** that writes the chosen resolution to the pipeline settings. Silhouette is O(n²), so metrics are computed on a subsample (50k cells by default).
+
+---
+
+## Cell-level quantification
+
+Once you **apply** a resolution in the Leiden Optimizer, the cell-level steps build and reuse a single artifact — `<output_dir>/clustering/clustered.h5ad` (UMAP, Leiden labels, cell-type annotation, condition / replicate / batch, and the spatial coordinates) — so every downstream view shares the same cells and labels.
+
+| Page | Question | Method |
+|------|----------|--------|
+| **🔬 Clusters** | What are the cell types? | UMAP + Leiden at the applied resolution on the Harmony embedding; Wilcoxon marker genes per cluster; a cluster → cell-type annotation form (saved to `annotations.json`, baked into `obs['cell_type']`). |
+| **📊 Composition** | Do cell-type *proportions* shift with condition? | Per-replicate proportions, AGED vs ADULT; log2 fold-change + an exploratory t-test. |
+| **🧪 Pseudobulk DGE** | Which genes change *within* a cell type? | Pseudobulk per replicate within the cell type; Welch test on CPM; volcano + per-cell-type DE counts. |
+| **🗺️ Spatial maps & niches** | Where do cell types sit, and what co-localises? | Per-slide cell-type maps; neighbourhood-enrichment z-score from within-slide label permutation. |
+| **🎯 Gene focus** | How does *one gene* behave? | Expression + detection per cluster, per-cluster DE, a spatial expression map, and an AGED−ADULT spatial age-effect grid. |
+
+**Statistical stance.** Every condition comparison (composition, DGE, gene focus) is computed at the **biological-replicate** level — proportions or pseudobulk summed per sample, never per cell — to avoid pseudoreplication (treating thousands of cells as independent observations, which manufactures significance). With the usual 2-vs-2 design the per-feature tests are underpowered, so the UI is explicit that these are **effect-size / discovery** analyses: rank by effect size, read the per-replicate dots, and validate hits in an independent cohort (and with a count model such as DESeq2/edgeR for DGE) before reporting them.
 
 ---
 
@@ -201,7 +221,7 @@ All files are written to `<output_dir>/sample_pca/` (web app) or `figures_output
 | `sample_pca_variance.csv` | Variance ratio and cumulative variance per PC |
 | `pseudobulk_samples.h5ad` | Pseudobulk AnnData (counts, lognorm, `obsm['X_pca']`) |
 
-Figures follow **Nature Publishing Group** conventions: Arial fonts, thin spines, editable PDF (Type 42 fonts), colour-blind-safe [Wong (2011)](https://doi.org/10.1038/nmeth.1618) group colours.
+The publication figures (Sample-PCA scatter / correlation heatmap / scree, and the PCA elbow) follow **Nature Publishing Group** conventions via a shared style (`src/xenium_spatial/figure_style.py`): a sans-serif typeface (Arial/Helvetica), thin spines, editable PDF (Type-42 fonts), and colour-blind-safe [Wong (2011)](https://doi.org/10.1038/nmeth.1618) group colours, at a font scale sized for single-column print. (The interactive quantification charts in steps 5–9 are Plotly, for on-screen exploration.)
 
 The Leiden Optimizer writes to `<output_dir>/leiden_optimizer/`:
 
@@ -211,6 +231,15 @@ The Leiden Optimizer writes to `<output_dir>/leiden_optimizer/`:
 | `pipeline_settings.json` | The applied `leiden_resolution`, restored on app start and merged into the study config |
 
 The recommended resolution is also stored in session state and saved with the study configuration JSON from **Study Setup**, so it travels with the rest of your settings.
+
+The cell-level quantification persists to `<output_dir>/clustering/`:
+
+| File | Description |
+|------|-------------|
+| `clustered.h5ad` | The final clustering — UMAP, Leiden labels, `cell_type` annotation, condition / replicate / batch, spatial coords; the shared input to steps 6–9 |
+| `annotations.json` | The cluster → cell-type label mapping |
+
+Each quantification page also offers its own CSV downloads (cluster marker genes, composition stats and per-replicate proportions, per-cell-type DGE tables, neighbourhood-enrichment z-scores, and per-cluster gene fold-changes) **and a publication-ready PDF for every on-screen chart** — the interactive Plotly view is for exploration, while a one-click *“(PDF, publication)”* button beside it exports the matching **Nature-style, Type-42-editable** vector figure (shared style with the Sample-PCA / elbow figures). Covered figures: the UMAP and top-marker heatmap (Clusters); the stacked-composition and proportion-by-condition plots (Composition); the volcano (DGE); the cell-type map and neighbourhood-enrichment heatmap (Spatial); and the expression violins, per-cluster fold-change bar, spatial expression map and age-effect grid (Gene focus).
 
 A `panel_validation.csv` (per-slide base/custom gene breakdown) is written to the **output directory** alongside these results. The app's diagnostic log goes to `logs/xenium_app.log` (see the **🪵 Debug log** panel).
 
@@ -255,23 +284,37 @@ xenium-spatial-analysis/
 │       ├── panel_registry.py    Gene classification and panel harmonisation
 │       ├── roi_selector.py      ROI persistence + apply (reads roi_cache/)
 │       ├── sample_pca.py        Pseudobulk, normalise, PCA, and figures
-│       └── leiden_optimizer.py  Cell-level embedding, elbow PC selection, Leiden sweep
+│       ├── leiden_optimizer.py  Cell-level embedding, elbow PC selection, Leiden sweep
+│       ├── cell_clustering.py   UMAP + Leiden labels, marker genes, annotation
+│       ├── composition.py       Per-replicate cell-type proportions + stats
+│       ├── pseudobulk_dge.py    Within-cell-type pseudobulk differential expression
+│       ├── spatial.py           Cell-type maps + neighbourhood-enrichment
+│       ├── gene_focus.py        Single-gene quantification (expression, DE, spatial grid)
+│       ├── figure_style.py      Shared Nature-grade matplotlib style (rcParams)
+│       └── figure_export.py     Nature-style PDF renderers for the quantification charts
 │
 ├── app/                         Web interface (Streamlit)
 │   ├── app.py                   Landing page: progress + paths/log diagnostics
 │   ├── ui_utils.py              Shared helpers: session init, logging, paths/log panels, CSS
+│   ├── pipeline.py              Shared cached loaders (embedding + clustered.h5ad)
 │   ├── styles.css               Custom Streamlit styles
 │   ├── .streamlit/config.toml   Theme and server settings
 │   └── pages/
 │       ├── 1_study_setup.py     Slide folders (incl. batch) + JSON save/load
 │       ├── 2_roi_manager.py     Interactive ROI framing (draw-box / sliders)
 │       ├── 3_sample_pca.py      Pseudobulk PCA + Nature-style figures
-│       └── 4_leiden_optimizer.py  Elbow plot, resolution sweep, scoring, clustree
+│       ├── 4_leiden_optimizer.py  Elbow plot, resolution sweep, scoring, clustree
+│       ├── 5_clusters.py        UMAP + marker genes + cell-type annotation
+│       ├── 6_composition.py     Per-replicate cell-type composition shifts
+│       ├── 7_dge.py             Within-cell-type pseudobulk DGE + volcano
+│       ├── 8_spatial.py         Cell-type maps + neighbourhood niches
+│       └── 9_gene_focus.py      Single-gene quantification (default Gal)
 │
 ├── scripts/
 │   └── run_sample_pca.py        CLI entry point for the sample PCA
 │
-├── tests/                       pytest suite (e.g. the elbow-metric tests)
+├── tests/                       pytest suite (elbow, manifest, composition,
+│                                DGE, spatial, gene-focus, …)
 │
 ├── data/
 │   └── Xenium_mBrain_v1_1_metadata.csv   Base panel gene list + annotations
@@ -295,14 +338,16 @@ See [`requirements.txt`](requirements.txt). Key packages:
 | anndata | 0.10 | Annotated data matrices |
 | pyarrow | 14.0 | Parquet support (`cells.parquet`) |
 
-Leiden Optimizer only (step 4 — lazily imported, not needed for Sample PCA):
+Cell-level steps only (steps 4–9 — lazily imported, not needed for Sample PCA):
 
 | Package | Min version | Purpose |
 |---------|-------------|---------|
-| scanpy | 1.10 | Normalisation, PCA, neighbour graph, Leiden |
+| scanpy | 1.10 | Normalisation, PCA, neighbour graph, Leiden, UMAP, marker genes |
 | igraph | 0.11 | Graph backend + modularity |
 | leidenalg | 0.10 | Leiden community detection |
 | harmonypy | 0.0.9 | Cross-slide batch integration (Harmony) |
+
+scikit-learn (a core dependency) also powers the spatial neighbourhood-enrichment graph.
 
 ---
 
@@ -323,8 +368,11 @@ Lower `min_slides`, or switch `panel_mode` to `union`.
 **Leiden clusters track the slide instead of cell type**
 This is batch effect across slides. Enable **Harmony batch correction** on the Leiden Optimizer page (on by default for multi-slide runs) so clustering happens on the integrated embedding. Set a `batch` shared across conditions first — see [batch correction](#batch-correction) — so you don't remove the condition signal along with the batch effect.
 
-**`No module named 'scanpy'` on the Leiden Optimizer page**
-The optimizer needs the single-cell stack. Install it with `pip install -e ".[clustering]"` (or `pip install scanpy igraph leidenalg harmonypy`); the other three pages do not require it.
+**`No module named 'scanpy'` on the Leiden Optimizer / cell-level pages**
+The cell-level steps (4–9) need the single-cell stack. Install it with `pip install -e ".[clustering]"` (or `pip install scanpy igraph leidenalg harmonypy`); steps 1–3 (Study Setup → ROI Manager → Sample PCA) do not require it.
+
+**"No clustering found" on Clusters / Composition / DGE / Spatial / Gene focus**
+Those pages read `clustering/clustered.h5ad`. Build it first: on the **🔬 Clusters** page set the embedding (match what you swept) and click *Build clustering*. The other quantification pages then pick it up automatically (they cache on the file's modification time, so re-building or re-annotating refreshes them).
 
 **ROI selects 0 cells**
 The MBH sits in the ventral 50–80% of a coronal section (larger y, since y increases toward ventral). Re-frame by dragging a box there; the live cell count confirms when the region is populated.
